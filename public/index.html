@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XSchedule-X | Programa tus publicaciones</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+                <h1>XSchedule-X</h1>
+            </div>
+            <div id="userInfo" class="user-info"></div>
+        </header>
+
+        <main>
+            <section class="schedule-section">
+                <h2>Programa tus publicaciones</h2>
+
+                <form id="scheduleForm" class="schedule-form">
+                    <div class="form-group">
+                        <label for="postCount">¿Cuántas publicaciones?</label>
+                        <input type="number" id="postCount" min="1" max="50" value="3" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="interval">Intervalo (minutos)</label>
+                        <input type="number" id="interval" min="1" value="60" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="timezone">Zona horaria</label>
+                        <select id="timezone" required>
+                            <option value="America/New_York">Nueva York (EST)</option>
+                            <option value="America/Chicago">Chicago (CST)</option>
+                            <option value="America/Denver">Denver (MST)</option>
+                            <option value="America/Los_Angeles">Los Ángeles (PST)</option>
+                            <option value="America/Mexico_City" selected>Ciudad de México (CST)</option>
+                            <option value="America/Bogota">Bogotá (COT)</option>
+                            <option value="America/Lima">Lima (PET)</option>
+                            <option value="America/Argentina/Buenos_Aires">Buenos Aires (ART)</option>
+                            <option value="America/Sao_Paulo">São Paulo (BRT)</option>
+                            <option value="Europe/Madrid">Madrid (CET)</option>
+                            <option value="Europe/London">Londres (GMT)</option>
+                            <option value="UTC">UTC</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="startTime">Hora de inicio (opcional)</label>
+                        <input type="datetime-local" id="startTime">
+                    </div>
+
+                    <div id="postsContainer" class="posts-container"></div>
+
+                    <button type="submit" class="btn-primary">
+                        <span>Programar publicaciones</span>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                    </button>
+                </form>
+            </section>
+
+            <section class="scheduled-section">
+                <h2>Publicaciones programadas</h2>
+                <div id="scheduledPosts" class="scheduled-posts"></div>
+            </section>
+        </main>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "xschedule-x",
+  "version": "1.0.0",
+  "description": "Aplicación minimalista y hermosa para programar publicaciones en X (Twitter)",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["twitter", "x", "schedule", "posts"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "twitter-api-v2": "^1.17.0",
+    "node-cron": "^3.0.3",
+    "dotenv": "^16.3.1"
+  }
+}
