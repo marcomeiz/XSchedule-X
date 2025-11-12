@@ -33,42 +33,116 @@ function calculateSlots(totalSlots, intervalHours, workStart, workEnd, timezone)
   const [startHour, startMinute] = workStart.split(':').map(Number);
   const [endHour, endMinute] = workEnd.split(':').map(Number);
 
-  // Comenzar mañana a las workStart
-  const start = new Date();
-  start.setDate(start.getDate() + 1);
-  start.setHours(startHour, startMinute, 0, 0);
+  const workMinutesPerDay = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
 
-  let currentDate = new Date(start);
-  let slotsCreated = 0;
+  // ===== DETERMINAR PUNTO DE INICIO (incluir hoy si es posible) =====
+  const now = new Date();
+  let startDate = new Date();
 
-  while (slotsCreated < totalSlots) {
+  const isWeekday = now.getDay() !== 0 && now.getDay() !== 6;
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const workStartMinutes = startHour * 60 + startMinute;
+  const workEndMinutes = endHour * 60 + endMinute;
+
+  // Si hoy es día laboral Y estamos antes del fin del horario laboral
+  if (isWeekday && nowMinutes < workEndMinutes) {
+    if (nowMinutes >= workStartMinutes) {
+      // Ya estamos en horario laboral, empezar en el siguiente minuto
+      startDate = new Date(now);
+      startDate.setSeconds(0, 0);
+      startDate.setMinutes(startDate.getMinutes() + 1);
+    } else {
+      // Aún no empieza el horario laboral hoy, empezar en workStart
+      startDate.setHours(startHour, startMinute, 0, 0);
+    }
+  } else {
+    // Empezar mañana en workStart
+    startDate.setDate(startDate.getDate() + 1);
+    startDate.setHours(startHour, startMinute, 0, 0);
+
     // Saltar fines de semana
-    const dayOfWeek = currentDate.getDay();
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      currentDate.setDate(currentDate.getDate() + 1);
-      currentDate.setHours(startHour, startMinute, 0, 0);
-      continue;
+    while (startDate.getDay() === 0 || startDate.getDay() === 6) {
+      startDate.setDate(startDate.getDate() + 1);
+    }
+  }
+
+  // ===== CALCULAR DISTRIBUCIÓN UNIFORME =====
+  // Calcular cuántos minutos de trabajo disponibles tenemos desde startDate
+  const startDateMinutes = startDate.getHours() * 60 + startDate.getMinutes();
+  let firstDayRemainingMinutes = workEndMinutes - startDateMinutes;
+  if (firstDayRemainingMinutes < 0) firstDayRemainingMinutes = 0;
+
+  // Estimar días laborales necesarios basado en intervalHours mínimo
+  const minTotalMinutes = (totalSlots - 1) * (intervalHours * 60);
+  const estimatedWorkdays = Math.ceil(minTotalMinutes / workMinutesPerDay) + 1;
+
+  // Calcular total de minutos de trabajo disponibles
+  let totalAvailableMinutes = firstDayRemainingMinutes;
+  let tempDate = new Date(startDate);
+  tempDate.setDate(tempDate.getDate() + 1);
+
+  for (let i = 0; i < estimatedWorkdays; i++) {
+    while (tempDate.getDay() === 0 || tempDate.getDay() === 6) {
+      tempDate.setDate(tempDate.getDate() + 1);
+    }
+    totalAvailableMinutes += workMinutesPerDay;
+    tempDate.setDate(tempDate.getDate() + 1);
+  }
+
+  // Espaciado uniforme: distribuir posts por TODO el tiempo disponible
+  const uniformSpacingMinutes = totalAvailableMinutes / (totalSlots - 1);
+
+  // Usar el mayor entre uniformSpacing e intervalHours para respetar mínimo
+  const spacingMinutes = Math.max(uniformSpacingMinutes, intervalHours * 60);
+
+  // ===== GENERAR SLOTS =====
+  for (let i = 0; i < totalSlots; i++) {
+    const minutesFromStart = i * spacingMinutes;
+
+    // Convertir minutos totales a fecha real
+    let slotDate = new Date(startDate);
+    let minutesToAdd = minutesFromStart;
+
+    // Calcular minutos disponibles en el primer día
+    const firstDayMinutes = workEndMinutes - (slotDate.getHours() * 60 + slotDate.getMinutes());
+
+    if (minutesToAdd >= firstDayMinutes) {
+      // Necesitamos pasar a días siguientes
+      minutesToAdd -= firstDayMinutes;
+      slotDate.setDate(slotDate.getDate() + 1);
+
+      // Saltar fines de semana
+      while (slotDate.getDay() === 0 || slotDate.getDay() === 6) {
+        slotDate.setDate(slotDate.getDate() + 1);
+      }
+
+      // Avanzar días completos
+      while (minutesToAdd >= workMinutesPerDay) {
+        minutesToAdd -= workMinutesPerDay;
+        slotDate.setDate(slotDate.getDate() + 1);
+
+        // Saltar fines de semana
+        while (slotDate.getDay() === 0 || slotDate.getDay() === 6) {
+          slotDate.setDate(slotDate.getDate() + 1);
+        }
+      }
+
+      // Establecer al inicio del día laboral
+      slotDate.setHours(startHour, startMinute, 0, 0);
+
+      // Añadir minutos restantes
+      slotDate.setMinutes(slotDate.getMinutes() + minutesToAdd);
+    } else {
+      // Todo cabe en el primer día
+      slotDate.setMinutes(slotDate.getMinutes() + minutesToAdd);
     }
 
-    // Crear slot
     slots.push({
-      slot_index: slotsCreated,
-      scheduled_time: new Date(currentDate).toISOString(),
+      slot_index: i,
+      scheduled_time: slotDate.toISOString(),
       status: 'empty',
       content: null
     });
-
-    slotsCreated++;
-
-    // Avanzar por intervalo
-    currentDate = new Date(currentDate.getTime() + intervalHours * 60 * 60 * 1000);
-
-    // Si salimos del horario laboral, ir al día siguiente
-    if (currentDate.getHours() >= endHour ||
-        (currentDate.getHours() === endHour && currentDate.getMinutes() > endMinute)) {
-      currentDate.setDate(currentDate.getDate() + 1);
-      currentDate.setHours(startHour, startMinute, 0, 0);
-    }
   }
 
   return slots;
