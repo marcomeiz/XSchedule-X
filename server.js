@@ -181,6 +181,8 @@ app.post('/api/timeline/create', async (req, res) => {
 
     // PRESERVAR publicaciones del timeline anterior
     let existingPosts = [];
+    let publishedSlots = [];
+
     const { data: oldTimeline } = await supabase
       .from('timelines')
       .select('id')
@@ -188,7 +190,20 @@ app.post('/api/timeline/create', async (req, res) => {
       .single();
 
     if (oldTimeline) {
-      // Obtener slots llenos ANTES de borrar
+      // Obtener slots PUBLICADOS (no se tocan nunca)
+      const { data: published } = await supabase
+        .from('slots')
+        .select('*')
+        .eq('timeline_id', oldTimeline.id)
+        .eq('status', 'published')
+        .order('slot_index', { ascending: true });
+
+      if (published && published.length > 0) {
+        publishedSlots = published;
+        console.log(`🔒 ${published.length} slots publicados permanecen intocables`);
+      }
+
+      // Obtener slots llenos ANTES de borrar (para preservar)
       const { data: filledSlots } = await supabase
         .from('slots')
         .select('content, filled_at')
@@ -198,14 +213,36 @@ app.post('/api/timeline/create', async (req, res) => {
 
       if (filledSlots && filledSlots.length > 0) {
         existingPosts = filledSlots.map(s => s.content);
-        console.log(`📦 Preservando ${existingPosts.length} publicaciones...`);
+        console.log(`📦 Preservando ${existingPosts.length} publicaciones pendientes...`);
       }
 
-      // Ahora sí, borrar timeline anterior
-      await supabase.from('timelines').delete().eq('id', oldTimeline.id);
+      // Borrar SOLO los slots no publicados (empty y filled)
+      await supabase
+        .from('slots')
+        .delete()
+        .eq('timeline_id', oldTimeline.id)
+        .in('status', ['empty', 'filled']);
+
+      // Actualizar el timeline existente (no crear uno nuevo)
+      const { data: timeline, error: timelineError } = await supabase
+        .from('timelines')
+        .update({
+          total_slots: totalSlots,
+          interval_hours: intervalHours,
+          work_start: workStart,
+          work_end: workEnd,
+          timezone
+        })
+        .eq('id', oldTimeline.id)
+        .select()
+        .single();
+
+      if (timelineError) throw timelineError;
+
+      return await createOrUpdateTimelineSlots(timeline, totalSlots, intervalHours, monthsAhead, workStart, workEnd, timezone, existingPosts, publishedSlots, res);
     }
 
-    // Crear nuevo timeline
+    // Si no hay timeline previo, crear uno nuevo
     const { data: timeline, error: timelineError } = await supabase
       .from('timelines')
       .insert({
@@ -221,7 +258,17 @@ app.post('/api/timeline/create', async (req, res) => {
 
     if (timelineError) throw timelineError;
 
-    // Calcular slots
+    return await createOrUpdateTimelineSlots(timeline, totalSlots, intervalHours, monthsAhead, workStart, workEnd, timezone, existingPosts, publishedSlots, res);
+  } catch (error) {
+    console.error('Error al crear/actualizar timeline:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function para crear/actualizar slots
+async function createOrUpdateTimelineSlots(timeline, totalSlots, intervalHours, monthsAhead, workStart, workEnd, timezone, existingPosts, publishedSlots, res) {
+  try {
+    // Calcular slots nuevos
     const slotsData = calculateSlots(
       totalSlots,
       intervalHours,
@@ -250,30 +297,39 @@ app.post('/api/timeline/create', async (req, res) => {
       };
     });
 
-    const { data: slots, error: slotsError } = await supabase
+    // Insertar nuevos slots
+    const { data: newSlots, error: slotsError } = await supabase
       .from('slots')
       .insert(slotsToInsert)
       .select();
 
     if (slotsError) throw slotsError;
 
-    timeline.slots = slots.sort((a, b) => a.slot_index - b.slot_index);
+    // Obtener TODOS los slots (nuevos + publicados)
+    const { data: allSlots } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('timeline_id', timeline.id)
+      .order('slot_index', { ascending: true });
+
+    timeline.slots = allSlots;
 
     const message = existingPosts.length > 0
-      ? `Timeline actualizado. ${existingPosts.length} publicaciones preservadas ✅`
+      ? `Timeline actualizado. ${existingPosts.length} publicaciones preservadas ✅. ${publishedSlots.length} publicados intocables 🔒`
       : 'Timeline creado exitosamente';
 
     res.json({
       success: true,
       timeline,
       message,
-      preservedCount: existingPosts.length
+      preservedCount: existingPosts.length,
+      publishedCount: publishedSlots.length
     });
   } catch (error) {
-    console.error('Error al crear timeline:', error);
+    console.error('Error al crear/actualizar timeline:', error);
     res.status(500).json({ error: error.message });
   }
-});
+}
 
 // Agregar publicación al próximo slot vacío
 app.post('/api/timeline/add-post', async (req, res) => {
@@ -337,10 +393,10 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
   try {
     const { slotId } = req.params;
 
-    // Obtener el slot para saber a qué timeline pertenece
+    // Obtener el slot para verificar su estado
     const { data: slot } = await supabase
       .from('slots')
-      .select('timeline_id')
+      .select('timeline_id, status')
       .eq('id', slotId)
       .single();
 
@@ -348,7 +404,14 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
       return res.status(404).json({ error: 'Slot no encontrado' });
     }
 
-    // Vaciar el slot
+    // PROTEGER: No permitir borrar slots publicados
+    if (slot.status === 'published') {
+      return res.status(403).json({
+        error: '🔒 No puedes eliminar un slot publicado. Solo se usan para analytics.'
+      });
+    }
+
+    // Vaciar el slot (solo si no está publicado)
     await supabase
       .from('slots')
       .update({
@@ -356,7 +419,8 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
         content: null,
         filled_at: null
       })
-      .eq('id', slotId);
+      .eq('id', slotId)
+      .neq('status', 'published'); // Extra safety
 
     // Devolver timeline actualizado
     const { data: timeline } = await supabase

@@ -128,6 +128,9 @@ async function deleteSlot(slotId) {
       timeline = data.timeline;
       renderSlots();
       updateProgress();
+    } else {
+      // Mostrar error (ej: slot publicado no se puede borrar)
+      alert(data.error || 'Error al eliminar');
     }
   } catch (error) {
     console.error('Error:', error);
