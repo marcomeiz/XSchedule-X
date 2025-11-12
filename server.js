@@ -103,7 +103,8 @@ app.post('/api/timeline/create', async (req, res) => {
   try {
     const { totalSlots, intervalHours, workStart, workEnd, timezone } = req.body;
 
-    // Borrar timeline anterior si existe
+    // PRESERVAR publicaciones del timeline anterior
+    let existingPosts = [];
     const { data: oldTimeline } = await supabase
       .from('timelines')
       .select('id')
@@ -111,6 +112,20 @@ app.post('/api/timeline/create', async (req, res) => {
       .single();
 
     if (oldTimeline) {
+      // Obtener slots llenos ANTES de borrar
+      const { data: filledSlots } = await supabase
+        .from('slots')
+        .select('content, filled_at')
+        .eq('timeline_id', oldTimeline.id)
+        .eq('status', 'filled')
+        .order('slot_index', { ascending: true });
+
+      if (filledSlots && filledSlots.length > 0) {
+        existingPosts = filledSlots.map(s => s.content);
+        console.log(`📦 Preservando ${existingPosts.length} publicaciones...`);
+      }
+
+      // Ahora sí, borrar timeline anterior
       await supabase.from('timelines').delete().eq('id', oldTimeline.id);
     }
 
@@ -139,11 +154,24 @@ app.post('/api/timeline/create', async (req, res) => {
       timezone
     );
 
-    // Insertar slots
-    const slotsToInsert = slotsData.map(slot => ({
-      ...slot,
-      timeline_id: timeline.id
-    }));
+    // MIGRAR contenido a nuevos slots
+    const slotsToInsert = slotsData.map((slot, index) => {
+      // Si hay contenido preservado para este índice, usarlo
+      if (index < existingPosts.length) {
+        return {
+          ...slot,
+          timeline_id: timeline.id,
+          status: 'filled',
+          content: existingPosts[index],
+          filled_at: new Date().toISOString()
+        };
+      }
+      // Si no, slot vacío
+      return {
+        ...slot,
+        timeline_id: timeline.id
+      };
+    });
 
     const { data: slots, error: slotsError } = await supabase
       .from('slots')
@@ -154,7 +182,16 @@ app.post('/api/timeline/create', async (req, res) => {
 
     timeline.slots = slots.sort((a, b) => a.slot_index - b.slot_index);
 
-    res.json({ success: true, timeline });
+    const message = existingPosts.length > 0
+      ? `Timeline actualizado. ${existingPosts.length} publicaciones preservadas ✅`
+      : 'Timeline creado exitosamente';
+
+    res.json({
+      success: true,
+      timeline,
+      message,
+      preservedCount: existingPosts.length
+    });
   } catch (error) {
     console.error('Error al crear timeline:', error);
     res.status(500).json({ error: error.message });

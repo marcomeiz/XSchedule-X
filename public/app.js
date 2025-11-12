@@ -56,6 +56,12 @@ setupForm.addEventListener('submit', async (e) => {
 
     if (data.success) {
       timeline = data.timeline;
+
+      // Mostrar mensaje si se preservaron publicaciones
+      if (data.preservedCount > 0) {
+        alert(`✅ ${data.message}\n\nTus publicaciones se han redistribuido automáticamente en el nuevo horario.`);
+      }
+
       showTimelineView();
     } else {
       alert('Error al crear timeline: ' + (data.error || 'Error desconocido'));
@@ -245,7 +251,7 @@ async function shuffleQueue() {
 
 // ===== RESET =====
 function resetApp() {
-  if (confirm('¿Crear una nueva timeline? Se borrará la actual.')) {
+  if (confirm('¿Actualizar tu timeline?\n\n✅ Tus publicaciones se preservarán automáticamente\n📅 Solo cambiarás horarios/cantidad de slots')) {
     timeline = null;
     showSetupView();
   }

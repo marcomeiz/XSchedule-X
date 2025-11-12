@@ -18,24 +18,31 @@
             </div>
 
             <form id="setupForm" class="setup-form">
-                <div class="input-group">
-                    <label>Cuántas publicaciones quieres programar?</label>
-                    <input type="number" id="totalSlots" min="1" max="100" value="12" required>
+                <div class="form-hint">
+                    <p>✨ Configura tu timeline de publicaciones. Si cambias algo después, tus publicaciones se preservarán automáticamente.</p>
                 </div>
 
                 <div class="input-group">
-                    <label>Intervalo entre publicaciones (horas)</label>
+                    <label>Cuántas publicaciones quieres programar?</label>
+                    <input type="number" id="totalSlots" min="1" max="100" value="12" required>
+                    <span class="input-hint">Ej: 12 posts distribuidos automáticamente</span>
+                </div>
+
+                <div class="input-group">
+                    <label>Cada cuántas horas publicar?</label>
                     <input type="number" id="intervalHours" min="0.5" max="24" step="0.5" value="2" required>
+                    <span class="input-hint">Ej: Cada 2 horas (9am, 11am, 1pm...)</span>
                 </div>
 
                 <div class="input-row">
                     <div class="input-group">
-                        <label>Horario laboral</label>
+                        <label>Horario de publicación</label>
                         <div class="time-inputs">
                             <input type="time" id="workStart" value="09:00" required>
                             <span>—</span>
                             <input type="time" id="workEnd" value="18:00" required>
                         </div>
+                        <span class="input-hint">Solo en este rango (skips fines de semana)</span>
                     </div>
 
                     <div class="input-group">
@@ -85,7 +92,7 @@
                             <polyline points="1 4 1 10 7 10"></polyline>
                             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
                         </svg>
-                        Nueva timeline
+                        Actualizar timeline
                     </button>
                 </div>
             </header>

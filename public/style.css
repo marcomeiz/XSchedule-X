@@ -222,6 +222,21 @@ body::before {
     }
 }
 
+.form-hint {
+    background: rgba(10, 132, 255, 0.1);
+    border: 1px solid rgba(10, 132, 255, 0.2);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-8);
+}
+
+.form-hint p {
+    font-size: 14px;
+    color: var(--system-blue);
+    line-height: 1.5;
+    margin: 0;
+}
+
 .input-group {
     margin-bottom: var(--space-8);
 }
@@ -238,6 +253,14 @@ body::before {
     margin-bottom: var(--space-2);
     letter-spacing: -0.01em;
     text-transform: uppercase;
+}
+
+.input-hint {
+    display: block;
+    font-size: 12px;
+    color: var(--label-tertiary);
+    margin-top: var(--space-1);
+    font-style: italic;
 }
 
 .input-group input[type="number"],
