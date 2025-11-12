@@ -189,13 +189,16 @@ function renderSlots() {
         ` : ''}
 
         ${isFailed ? `
-          <div class="slot-status failed">Error</div>
+          <div class="slot-status failed">
+            <strong>❌ Error al publicar:</strong><br>
+            ${escapeHtml(slot.error_message || 'Error desconocido')}
+          </div>
         ` : ''}
 
-        ${isFilled ? `
+        ${(isFilled || isFailed) ? `
           <div class="slot-actions">
             <button class="btn-delete" onclick="deleteSlot('${slot.id}')">
-              Eliminar
+              ${isFailed ? 'Limpiar' : 'Eliminar'}
             </button>
           </div>
         ` : ''}

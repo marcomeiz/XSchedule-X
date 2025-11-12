@@ -216,12 +216,12 @@ app.post('/api/timeline/create', async (req, res) => {
         console.log(`📦 Preservando ${existingPosts.length} publicaciones pendientes...`);
       }
 
-      // Borrar SOLO los slots no publicados (empty y filled)
+      // Borrar SOLO los slots no publicados (empty, filled, y failed)
       await supabase
         .from('slots')
         .delete()
         .eq('timeline_id', oldTimeline.id)
-        .in('status', ['empty', 'filled']);
+        .in('status', ['empty', 'filled', 'failed']);
 
       // Actualizar el timeline existente (no crear uno nuevo)
       const { data: timeline, error: timelineError } = await supabase
@@ -417,7 +417,8 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
       .update({
         status: 'empty',
         content: null,
-        filled_at: null
+        filled_at: null,
+        error_message: null
       })
       .eq('id', slotId)
       .neq('status', 'published'); // Extra safety
