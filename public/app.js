@@ -261,6 +261,7 @@ async function handlePostSubmit(e) {
     }
 
     try {
+        console.log('📤 Enviando post - Timeline ID:', appState.timelineId);
         const response = await fetch('/api/timeline/add-post', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -274,6 +275,7 @@ async function handlePostSubmit(e) {
 
         if (data.success) {
             appState.timeline = data.timeline;
+            appState.timelineId = data.timeline.id; // Asegurar sincronización del ID
             renderTimeline();
             elements.postContent.value = '';
             updateCharCount();
@@ -305,6 +307,7 @@ async function deleteSlot(slotIndex) {
 
         if (data.success) {
             appState.timeline = data.timeline;
+            appState.timelineId = data.timeline.id; // Asegurar sincronización del ID
             renderTimeline();
             showToast('Publicación eliminada', 'success');
         } else {

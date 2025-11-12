@@ -200,7 +200,11 @@ app.post('/api/timeline/add-post', async (req, res) => {
 
     const timeline = await loadTimeline();
 
+    console.log('📥 Add-post - Recibido timelineId:', timelineId, 'tipo:', typeof timelineId);
+    console.log('📋 Timeline cargado - ID:', timeline?.id, 'tipo:', typeof timeline?.id);
+
     if (!timeline || timeline.id !== timelineId) {
+      console.log('❌ IDs no coinciden o timeline null');
       return res.status(404).json({ error: 'Timeline no encontrado' });
     }
 
