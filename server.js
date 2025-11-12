@@ -260,6 +260,66 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
   }
 });
 
+// Shuffle: mezclar aleatoriamente el contenido de los slots llenos
+app.post('/api/timeline/shuffle', async (req, res) => {
+  try {
+    // Obtener timeline actual
+    const { data: timeline } = await supabase
+      .from('timelines')
+      .select('id')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!timeline) {
+      return res.status(404).json({ error: 'No hay timeline activo' });
+    }
+
+    // Obtener todos los slots llenos
+    const { data: filledSlots } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('timeline_id', timeline.id)
+      .eq('status', 'filled')
+      .order('slot_index', { ascending: true });
+
+    if (!filledSlots || filledSlots.length < 2) {
+      return res.status(400).json({ error: 'Necesitas al menos 2 publicaciones para mezclar' });
+    }
+
+    // Extraer contenidos
+    const contents = filledSlots.map(s => s.content);
+
+    // Shuffle Fisher-Yates
+    for (let i = contents.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [contents[i], contents[j]] = [contents[j], contents[i]];
+    }
+
+    // Actualizar cada slot con el contenido mezclado
+    for (let i = 0; i < filledSlots.length; i++) {
+      await supabase
+        .from('slots')
+        .update({ content: contents[i] })
+        .eq('id', filledSlots[i].id);
+    }
+
+    // Devolver timeline actualizado
+    const { data: updatedTimeline } = await supabase
+      .from('timelines')
+      .select('*, slots(*)')
+      .eq('id', timeline.id)
+      .single();
+
+    updatedTimeline.slots.sort((a, b) => a.slot_index - b.slot_index);
+
+    res.json({ success: true, timeline: updatedTimeline });
+  } catch (error) {
+    console.error('Error al mezclar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ===== AUTO-PUBLISHER =====
 async function checkAndPublishScheduledPosts() {
   try {

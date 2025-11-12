@@ -195,6 +195,12 @@ body {
     gap: 16px;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .header h2 {
     font-size: 24px;
     font-weight: 600;

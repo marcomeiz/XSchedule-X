@@ -208,6 +208,41 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// ===== SHUFFLE =====
+async function shuffleQueue() {
+  if (!timeline) return;
+
+  const filledCount = timeline.slots.filter(s => s.status === 'filled').length;
+
+  if (filledCount < 2) {
+    alert('Necesitas al menos 2 publicaciones para mezclar');
+    return;
+  }
+
+  if (!confirm(`¿Mezclar aleatoriamente las ${filledCount} publicaciones?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/timeline/shuffle', {
+      method: 'POST'
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      timeline = data.timeline;
+      renderSlots();
+      updateProgress();
+    } else {
+      alert('Error: ' + (data.error || 'Error desconocido'));
+    }
+  } catch (error) {
+    console.error('Error:', error);
+    alert('Error al mezclar');
+  }
+}
+
 // ===== RESET =====
 function resetApp() {
   if (confirm('¿Crear una nueva timeline? Se borrará la actual.')) {
