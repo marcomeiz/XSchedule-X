@@ -1,37 +1,41 @@
+// ===== SUPABASE CLIENT =====
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const SUPABASE_URL = 'https://lzzmfproweybcafbecnm.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6em1mcHJvd2V5YmNhZmJlY25tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5NTc0OTMsImV4cCI6MjA3ODUzMzQ5M30.E9f9Iqebch1rEZGkkWaiBgAg0JLj81WkJDHpd5q7n8M';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 // ===== ESTADO GLOBAL =====
 let appState = {
-    timeline: null, // { totalSlots, workStart, workEnd, timezone, startDate, slots: [] }
-    timelineId: null // ID único del timeline actual
+    user: null,
+    session: null,
+    timeline: null,
+    timelineId: null
 };
 
 // ===== ELEMENTOS DEL DOM =====
 const elements = {
-    // Setup
     setupSection: document.getElementById('setupSection'),
     setupHeader: document.querySelector('.setup-header'),
     setupContent: document.getElementById('setupContent'),
     setupForm: document.getElementById('setupForm'),
-    setupArrow: document.getElementById('setupArrow'),
 
-    // Progress
     progressSection: document.getElementById('progressSection'),
     usedSlots: document.getElementById('usedSlots'),
     totalSlotsDisplay: document.getElementById('totalSlotsDisplay'),
     progressPercentage: document.getElementById('progressPercentage'),
     progressFill: document.getElementById('progressFill'),
 
-    // Input
     inputSection: document.getElementById('inputSection'),
     postForm: document.getElementById('postForm'),
     postContent: document.getElementById('postContent'),
     charCount: document.getElementById('charCount'),
     nextSlotIndicator: document.getElementById('nextSlotIndicator'),
 
-    // Timeline
     timelineSection: document.getElementById('timelineSection'),
     timeline: document.getElementById('timeline'),
 
-    // Other
     emptyState: document.getElementById('emptyState'),
     userInfo: document.getElementById('userInfo'),
     toast: document.getElementById('toast'),
@@ -39,59 +43,97 @@ const elements = {
 };
 
 // ===== INICIALIZACIÓN =====
-document.addEventListener('DOMContentLoaded', () => {
-    verifyTwitterConnection();
-    loadExistingTimeline();
+document.addEventListener('DOMContentLoaded', async () => {
+    await checkAuth();
+});
+
+// ===== VERIFICAR AUTENTICACIÓN =====
+async function checkAuth() {
+    const { data: { session }, error } = await supabase.auth.getSession();
+
+    if (error || !session) {
+        // No hay sesión, redirigir a login
+        window.location.href = '/auth.html';
+        return;
+    }
+
+    appState.user = session.user;
+    appState.session = session;
+
+    // Mostrar info de usuario
+    updateUserInfo();
+
+    // Cargar timeline (si existe)
+    await loadCurrentTimeline();
 
     // Event Listeners
     elements.setupForm.addEventListener('submit', handleSetupSubmit);
     elements.postForm.addEventListener('submit', handlePostSubmit);
     elements.postContent.addEventListener('input', updateCharCount);
-});
-
-// ===== VERIFICAR CONEXIÓN TWITTER =====
-async function verifyTwitterConnection() {
-    try {
-        const response = await fetch('/api/verify');
-        const data = await response.json();
-
-        if (data.success) {
-            elements.userInfo.innerHTML = `
-                <span style="color: var(--success)">✓</span>
-                <span>@${data.user.username}</span>
-            `;
-        } else {
-            elements.userInfo.innerHTML = `
-                <span style="color: var(--error)">✗</span>
-                <span>Sin conexión</span>
-            `;
-        }
-    } catch (error) {
-        console.error('Error:', error);
-    }
 }
+
+// ===== ACTUALIZAR INFO DE USUARIO =====
+function updateUserInfo() {
+    if (!appState.user) return;
+
+    elements.userInfo.innerHTML = `
+        <span style="color: var(--success)">●</span>
+        <span>${appState.user.email}</span>
+        <button
+            onclick="logout()"
+            class="btn-ghost"
+            style="margin-left: 8px; padding: 6px 12px; font-size: var(--font-small);"
+        >
+            Salir
+        </button>
+    `;
+}
+
+// ===== LOGOUT =====
+window.logout = async function() {
+    try {
+        await fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${appState.session.access_token}`
+            }
+        });
+
+        await supabase.auth.signOut();
+        window.location.href = '/auth.html';
+    } catch (error) {
+        console.error('Error en logout:', error);
+        showToast('Error al cerrar sesión', 'error');
+    }
+};
 
 // ===== TOGGLE SETUP =====
-function toggleSetup() {
+window.toggleSetup = function() {
     elements.setupHeader.classList.toggle('collapsed');
     elements.setupContent.classList.toggle('collapsed');
-}
+};
 
-// ===== CARGAR TIMELINE EXISTENTE =====
-async function loadExistingTimeline() {
+// ===== CARGAR TIMELINE ACTUAL =====
+async function loadCurrentTimeline() {
     try {
-        const response = await fetch('/api/timeline/current');
+        const response = await fetch('/api/timelines', {
+            headers: {
+                'Authorization': `Bearer ${appState.session.access_token}`
+            }
+        });
+
         const data = await response.json();
 
-        if (data.timeline) {
-            appState.timeline = data.timeline;
-            appState.timelineId = data.timeline.id;
+        if (data.timelines && data.timelines.length > 0) {
+            // Tomar el timeline más reciente
+            appState.timeline = data.timelines[0];
+            appState.timelineId = appState.timeline.id;
             renderTimeline();
             showWorkArea();
-            toggleSetup(); // Colapsar setup
+            toggleSetup();
         }
     } catch (error) {
-        console.log('No hay timeline existente');
+        console.log('No hay timeline existente o error:', error);
     }
 }
 
@@ -106,10 +148,12 @@ async function handleSetupSubmit(e) {
     const startDate = document.getElementById('startDate').value || new Date().toISOString().split('T')[0];
 
     try {
-        // Crear timeline en el backend
-        const response = await fetch('/api/timeline/create', {
+        const response = await fetch('/api/timelines/create', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${appState.session.access_token}`
+            },
             body: JSON.stringify({
                 totalSlots,
                 workStart,
@@ -161,7 +205,7 @@ function renderTimeline() {
         const isNextAvailable = index === nextEmptyIndex;
         const itemClass = `timeline-item ${slot.status} ${isNextAvailable ? 'next-available' : ''}`;
 
-        const date = new Date(slot.scheduledTime);
+        const date = new Date(slot.scheduled_time);
         const timeStr = date.toLocaleString('es-ES', {
             month: 'short',
             day: 'numeric',
@@ -174,12 +218,12 @@ function renderTimeline() {
         item.className = itemClass;
         item.innerHTML = `
             <div class="timeline-slot">
-                <div class="slot-number">#${index + 1}</div>
+                <div class="slot-number">#${slot.slot_index + 1}</div>
                 <div class="slot-time">${timeStr}</div>
             </div>
             <div class="timeline-content">
                 ${slot.status === 'empty' ?
-                    `<div class="timeline-text" style="color: var(--text-secondary); font-style: italic;">Slot disponible</div>` :
+                    `<div class="timeline-text" style="color: var(--text-muted); font-style: italic;">Slot disponible</div>` :
                     `<div class="timeline-text">${escapeHtml(slot.content)}</div>`
                 }
                 <div class="timeline-status">
@@ -190,9 +234,10 @@ function renderTimeline() {
                           '❌ Error'}
                     </span>
                     ${slot.status === 'filled' ? `
-                        <button class="btn-delete-slot" onclick="deleteSlot(${index})">Eliminar</button>
+                        <button class="btn-delete-slot" onclick="deleteSlot('${slot.id}')">Eliminar</button>
                     ` : ''}
                 </div>
+                ${slot.error_message ? `<div style="color: var(--danger); font-size: 12px; margin-top: 8px;">Error: ${escapeHtml(slot.error_message)}</div>` : ''}
             </div>
         `;
         elements.timeline.appendChild(item);
@@ -206,17 +251,17 @@ function renderTimeline() {
 function updateProgress() {
     if (!appState.timeline) return;
 
-    const { slots, totalSlots } = appState.timeline;
+    const { slots, total_slots } = appState.timeline;
     const usedCount = slots.filter(s => s.status !== 'empty').length;
-    const percentage = Math.round((usedCount / totalSlots) * 100);
+    const percentage = Math.round((usedCount / total_slots) * 100);
 
     elements.usedSlots.textContent = usedCount;
-    elements.totalSlotsDisplay.textContent = totalSlots;
+    elements.totalSlotsDisplay.textContent = total_slots;
     elements.progressPercentage.textContent = `${percentage}%`;
     elements.progressFill.style.width = `${percentage}%`;
 
     // Confetti si se completó todo
-    if (usedCount === totalSlots && usedCount > 0) {
+    if (usedCount === total_slots && usedCount > 0) {
         launchConfetti();
     }
 }
@@ -228,7 +273,7 @@ function updateNextSlotIndicator() {
     const nextSlot = appState.timeline.slots.find(s => s.status === 'empty');
 
     if (nextSlot) {
-        const date = new Date(nextSlot.scheduledTime);
+        const date = new Date(nextSlot.scheduled_time);
         const timeStr = date.toLocaleString('es-ES', {
             month: 'short',
             day: 'numeric',
@@ -262,20 +307,20 @@ async function handlePostSubmit(e) {
 
     try {
         console.log('📤 Enviando post - Timeline ID:', appState.timelineId);
-        const response = await fetch('/api/timeline/add-post', {
+        const response = await fetch(`/api/timelines/${appState.timelineId}/add-post`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                timelineId: appState.timelineId,
-                content
-            })
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${appState.session.access_token}`
+            },
+            body: JSON.stringify({ content })
         });
 
         const data = await response.json();
 
         if (data.success) {
             appState.timeline = data.timeline;
-            appState.timelineId = data.timeline.id; // Asegurar sincronización del ID
+            appState.timelineId = data.timeline.id;
             renderTimeline();
             elements.postContent.value = '';
             updateCharCount();
@@ -290,24 +335,22 @@ async function handlePostSubmit(e) {
 }
 
 // ===== ELIMINAR SLOT =====
-async function deleteSlot(slotIndex) {
+window.deleteSlot = async function(slotId) {
     if (!confirm('¿Eliminar esta publicación del slot?')) return;
 
     try {
-        const response = await fetch('/api/timeline/remove-post', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                timelineId: appState.timelineId,
-                slotIndex
-            })
+        const response = await fetch(`/api/timelines/${appState.timelineId}/slots/${slotId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${appState.session.access_token}`
+            }
         });
 
         const data = await response.json();
 
         if (data.success) {
             appState.timeline = data.timeline;
-            appState.timelineId = data.timeline.id; // Asegurar sincronización del ID
+            appState.timelineId = data.timeline.id;
             renderTimeline();
             showToast('Publicación eliminada', 'success');
         } else {
@@ -317,19 +360,18 @@ async function deleteSlot(slotIndex) {
         console.error('Error:', error);
         showToast('Error al conectar con el servidor', 'error');
     }
-}
+};
 
 // ===== RESET TIMELINE =====
-async function resetTimeline() {
+window.resetTimeline = async function() {
     if (!confirm('¿Reiniciar el timeline? Esto eliminará todas las publicaciones programadas.')) return;
 
     try {
-        const response = await fetch('/api/timeline/reset', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                timelineId: appState.timelineId
-            })
+        const response = await fetch(`/api/timelines/${appState.timelineId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${appState.session.access_token}`
+            }
         });
 
         const data = await response.json();
@@ -343,7 +385,6 @@ async function resetTimeline() {
             elements.timelineSection.classList.add('hidden');
             elements.emptyState.classList.remove('hidden');
 
-            // Expandir setup
             elements.setupHeader.classList.remove('collapsed');
             elements.setupContent.classList.remove('collapsed');
 
@@ -353,13 +394,12 @@ async function resetTimeline() {
         console.error('Error:', error);
         showToast('Error al reiniciar timeline', 'error');
     }
-}
+};
 
 // ===== ACTUALIZAR CONTADOR DE CARACTERES =====
 function updateCharCount() {
     const length = elements.postContent.value.length;
     elements.charCount.textContent = length;
-    elements.charCount.style.color = length > 260 ? 'var(--error)' : length > 240 ? 'var(--warning)' : 'var(--primary)';
 }
 
 // ===== CONFETTI =====
@@ -370,18 +410,18 @@ function launchConfetti() {
     canvas.height = window.innerHeight;
 
     const confettiPieces = [];
-    const colors = ['#1da1f2', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
+    const colors = ['#F3D33B', '#2FA69A', '#1FBF62', '#6E3B6E', '#E86F2A'];
 
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < 100; i++) {
         confettiPieces.push({
             x: Math.random() * canvas.width,
             y: Math.random() * canvas.height - canvas.height,
-            size: Math.random() * 8 + 4,
-            speedY: Math.random() * 3 + 2,
+            size: Math.random() * 6 + 3,
+            speedY: Math.random() * 2 + 1,
             speedX: Math.random() * 2 - 1,
             color: colors[Math.floor(Math.random() * colors.length)],
             rotation: Math.random() * 360,
-            rotationSpeed: Math.random() * 10 - 5
+            rotationSpeed: Math.random() * 8 - 4
         });
     }
 
@@ -418,7 +458,7 @@ function launchConfetti() {
     setTimeout(() => {
         if (animationId) cancelAnimationFrame(animationId);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }, 5000);
+    }, 4000);
 }
 
 // ===== TOAST =====
@@ -437,8 +477,3 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
-
-// Hacer funciones disponibles globalmente
-window.toggleSetup = toggleSetup;
-window.deleteSlot = deleteSlot;
-window.resetTimeline = resetTimeline;
