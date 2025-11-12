@@ -29,153 +29,121 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ===== ALGORITMO DE DISTRIBUCIÓN AUTOMÁTICA =====
-function calculateSlots(totalSlots, intervalHours, workStart, workEnd, timezone) {
+function calculateSlots(postsPerDayTarget, intervalHours, workStart, workEnd, timezone) {
   const slots = [];
   const [startHour, startMinute] = workStart.split(':').map(Number);
   const [endHour, endMinute] = workEnd.split(':').map(Number);
 
-  const workMinutesPerDay = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
-
-  // ===== DETERMINAR PUNTO DE INICIO (incluir hoy si es posible) =====
-  // Obtener "ahora" en la zona horaria del usuario
-  const now = DateTime.now().setZone(timezone);
-  let startDate = now;
-
-  const isWeekday = now.weekday >= 1 && now.weekday <= 5; // 1=Monday, 7=Sunday
-  const nowMinutes = now.hour * 60 + now.minute;
   const workStartMinutes = startHour * 60 + startMinute;
   const workEndMinutes = endHour * 60 + endMinute;
+  const workMinutesPerDay = workEndMinutes - workStartMinutes;
+  const intervalMinutes = intervalHours * 60;
 
-  // Si hoy es día laboral Y estamos antes del fin del horario laboral
-  if (isWeekday && nowMinutes < workEndMinutes) {
-    if (nowMinutes >= workStartMinutes) {
-      // Ya estamos en horario laboral, empezar en el siguiente minuto
-      startDate = now.plus({ minutes: 1 }).set({ second: 0, millisecond: 0 });
-    } else {
-      // Aún no empieza el horario laboral hoy, empezar en workStart
-      startDate = now.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
-    }
+  // ===== CALCULAR POSTS POR DÍA REALES =====
+  // Cuántos posts caben en un día respetando el intervalo mínimo?
+  const maxPostsPerDayByInterval = Math.floor(workMinutesPerDay / intervalMinutes);
+
+  // El objetivo es postsPerDayTarget, pero si el intervalo no permite tantos, usar el máximo posible
+  let postsPerDay, spacingMinutes;
+
+  if (maxPostsPerDayByInterval >= postsPerDayTarget) {
+    // Caben todos los posts deseados, distribuir uniformemente
+    postsPerDay = postsPerDayTarget;
+    // Distribuir uniformemente en todo el horario
+    spacingMinutes = postsPerDay > 1 ? workMinutesPerDay / (postsPerDay - 1) : 0;
   } else {
-    // Empezar mañana en workStart
-    startDate = now.plus({ days: 1 }).set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
-
-    // Saltar fines de semana
-    while (startDate.weekday === 6 || startDate.weekday === 7) {
-      startDate = startDate.plus({ days: 1 });
-    }
+    // No caben tantos, usar el máximo posible con intervalo mínimo
+    postsPerDay = maxPostsPerDayByInterval;
+    spacingMinutes = intervalMinutes;
   }
 
-  // ===== CALCULAR DISTRIBUCIÓN UNIFORME =====
-  // Calcular cuántos minutos de trabajo disponibles tenemos desde startDate
-  const startDateMinutes = startDate.hour * 60 + startDate.minute;
-  let firstDayRemainingMinutes = workEndMinutes - startDateMinutes;
-  if (firstDayRemainingMinutes < 0) firstDayRemainingMinutes = 0;
+  // ===== DETERMINAR PUNTO DE INICIO =====
+  const now = DateTime.now().setZone(timezone);
+  const isWeekday = now.weekday >= 1 && now.weekday <= 5;
+  const nowMinutes = now.hour * 60 + now.minute;
 
-  // Estimar días laborales necesarios basado en intervalHours mínimo
-  const minTotalMinutes = (totalSlots - 1) * (intervalHours * 60);
-  const estimatedWorkdays = Math.ceil(minTotalMinutes / workMinutesPerDay) + 1;
+  let currentDate = now;
+  let todayPostsCount = 0;
 
-  // Calcular total de minutos de trabajo disponibles
-  let totalAvailableMinutes = firstDayRemainingMinutes;
-  let tempDate = startDate.plus({ days: 1 });
+  // Calcular cuántos posts caben HOY (proporcional)
+  if (isWeekday && nowMinutes < workEndMinutes) {
+    let startMinutesToday;
 
-  for (let i = 0; i < estimatedWorkdays; i++) {
-    while (tempDate.weekday === 6 || tempDate.weekday === 7) {
-      tempDate = tempDate.plus({ days: 1 });
-    }
-    totalAvailableMinutes += workMinutesPerDay;
-    tempDate = tempDate.plus({ days: 1 });
-  }
-
-  // Espaciado uniforme: distribuir posts por TODO el tiempo disponible
-  const uniformSpacingMinutes = totalAvailableMinutes / (totalSlots - 1);
-
-  // Usar el mayor entre uniformSpacing e intervalHours para respetar mínimo
-  const spacingMinutes = Math.max(uniformSpacingMinutes, intervalHours * 60);
-
-  // ===== GENERAR SLOTS =====
-  for (let i = 0; i < totalSlots; i++) {
-    const minutesFromStart = i * spacingMinutes;
-
-    // Convertir minutos totales de trabajo a fecha real
-    let slotDate = startDate;
-    let minutesToAdd = minutesFromStart;
-
-    // Calcular minutos disponibles en el primer día (puede ser parcial)
-    const firstDayMinutes = workEndMinutes - (slotDate.hour * 60 + slotDate.minute);
-
-    if (minutesToAdd >= firstDayMinutes && firstDayMinutes > 0) {
-      // Necesitamos pasar a días siguientes
-      minutesToAdd -= firstDayMinutes;
-      slotDate = slotDate.plus({ days: 1 });
-
-      // Saltar fines de semana
-      while (slotDate.weekday === 6 || slotDate.weekday === 7) {
-        slotDate = slotDate.plus({ days: 1 });
-      }
-
-      // Avanzar días completos
-      while (minutesToAdd >= workMinutesPerDay) {
-        minutesToAdd -= workMinutesPerDay;
-        slotDate = slotDate.plus({ days: 1 });
-
-        // Saltar fines de semana
-        while (slotDate.weekday === 6 || slotDate.weekday === 7) {
-          slotDate = slotDate.plus({ days: 1 });
-        }
-      }
-
-      // Establecer al inicio del día laboral y añadir minutos restantes
-      slotDate = slotDate.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
-      slotDate = slotDate.plus({ minutes: minutesToAdd });
+    if (nowMinutes >= workStartMinutes) {
+      // Ya estamos en horario laboral
+      startMinutesToday = nowMinutes;
+      currentDate = now.plus({ minutes: 1 }).set({ second: 0, millisecond: 0 });
     } else {
-      // Todo cabe en el primer día (o el primer día ya pasó)
-      if (firstDayMinutes <= 0) {
-        // El primer día ya terminó, ir al siguiente día laboral
-        slotDate = slotDate.plus({ days: 1 });
+      // Aún no empieza el horario laboral hoy
+      startMinutesToday = workStartMinutes;
+      currentDate = now.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
+    }
 
-        // Saltar fines de semana
-        while (slotDate.weekday === 6 || slotDate.weekday === 7) {
-          slotDate = slotDate.plus({ days: 1 });
-        }
+    const remainingMinutesToday = workEndMinutes - startMinutesToday;
 
-        // Avanzar días completos
-        while (minutesToAdd >= workMinutesPerDay) {
-          minutesToAdd -= workMinutesPerDay;
-          slotDate = slotDate.plus({ days: 1 });
+    // Proporcional: Si quedan 3h de 9h = 33% del día → 33% de posts/día
+    const proportionOfDay = remainingMinutesToday / workMinutesPerDay;
+    todayPostsCount = Math.floor(postsPerDay * proportionOfDay);
 
-          // Saltar fines de semana
-          while (slotDate.weekday === 6 || slotDate.weekday === 7) {
-            slotDate = slotDate.plus({ days: 1 });
-          }
-        }
+    // Ajustar spacing para hoy si hay posts
+    if (todayPostsCount > 0) {
+      const todaySpacing = todayPostsCount > 1
+        ? remainingMinutesToday / (todayPostsCount - 1)
+        : 0;
 
-        // Establecer al inicio del día laboral y añadir minutos restantes
-        slotDate = slotDate.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
-        slotDate = slotDate.plus({ minutes: minutesToAdd });
-      } else {
-        // Todo cabe en el primer día
-        slotDate = slotDate.plus({ minutes: minutesToAdd });
+      // Generar slots de HOY
+      for (let i = 0; i < todayPostsCount; i++) {
+        slots.push({
+          slot_index: slots.length,
+          scheduled_time: currentDate.plus({ minutes: i * todaySpacing }).toISO(),
+          status: 'empty',
+          content: null
+        });
       }
     }
 
-    // VALIDACIÓN FINAL: Asegurar que el slot esté dentro del horario laboral
-    const slotMinutes = slotDate.hour * 60 + slotDate.minute;
-    if (slotMinutes > workEndMinutes) {
-      // Se pasó del horario de fin, mover al siguiente día laboral
-      slotDate = slotDate.plus({ days: 1 });
-      while (slotDate.weekday === 6 || slotDate.weekday === 7) {
-        slotDate = slotDate.plus({ days: 1 });
-      }
-      slotDate = slotDate.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
+    // Mover al siguiente día laboral
+    currentDate = now.plus({ days: 1 }).set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
+  } else {
+    // Hoy no es laboral o ya pasó, empezar mañana
+    currentDate = now.plus({ days: 1 }).set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
+  }
+
+  // Saltar fines de semana
+  while (currentDate.weekday === 6 || currentDate.weekday === 7) {
+    currentDate = currentDate.plus({ days: 1 });
+  }
+
+  // ===== GENERAR SLOTS PARA DÍAS COMPLETOS =====
+  // Total de slots a crear = postsPerDayTarget (ahora se interpreta como total deseado)
+  // Pero como el usuario dijo "hasta que me canse", vamos a generar para 30 días hacia adelante
+  const daysToSchedule = 30;
+  let daysScheduled = 0;
+
+  while (daysScheduled < daysToSchedule) {
+    // Saltar fines de semana
+    while (currentDate.weekday === 6 || currentDate.weekday === 7) {
+      currentDate = currentDate.plus({ days: 1 });
     }
 
-    slots.push({
-      slot_index: i,
-      scheduled_time: slotDate.toISO(),
-      status: 'empty',
-      content: null
-    });
+    // Generar posts para este día
+    for (let i = 0; i < postsPerDay; i++) {
+      const slotTime = currentDate.plus({ minutes: i * spacingMinutes });
+
+      // Validar que esté dentro del horario laboral
+      const slotMinutes = slotTime.hour * 60 + slotTime.minute;
+      if (slotMinutes <= workEndMinutes) {
+        slots.push({
+          slot_index: slots.length,
+          scheduled_time: slotTime.toISO(),
+          status: 'empty',
+          content: null
+        });
+      }
+    }
+
+    daysScheduled++;
+    currentDate = currentDate.plus({ days: 1 });
   }
 
   return slots;
