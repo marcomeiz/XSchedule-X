@@ -28,92 +28,96 @@ const twitterClient = new TwitterApi({
 
 const rwClient = twitterClient.readWrite;
 
-// Archivo para almacenar posts programados
-const SCHEDULED_POSTS_FILE = 'scheduled-posts.json';
+// Archivo para almacenar timeline
+const TIMELINE_FILE = 'timeline.json';
 
-// Funciones de almacenamiento
-async function loadScheduledPosts() {
+// ===== FUNCIONES DE ALMACENAMIENTO =====
+async function loadTimeline() {
   try {
-    const data = await fs.readFile(SCHEDULED_POSTS_FILE, 'utf8');
+    const data = await fs.readFile(TIMELINE_FILE, 'utf8');
     return JSON.parse(data);
   } catch (error) {
-    return [];
+    return null;
   }
 }
 
-async function saveScheduledPosts(posts) {
-  await fs.writeFile(SCHEDULED_POSTS_FILE, JSON.stringify(posts, null, 2));
+async function saveTimeline(timeline) {
+  await fs.writeFile(TIMELINE_FILE, JSON.stringify(timeline, null, 2));
 }
 
-// Endpoint para crear publicaciones programadas
-app.post('/api/schedule', async (req, res) => {
-  try {
-    const { posts, interval, timezone, startTime } = req.body;
+// ===== ALGORITMO DE DISTRIBUCIÓN INTELIGENTE =====
+function calculateOptimalSlots(totalSlots, workStart, workEnd, timezone, startDate) {
+  const slots = [];
 
-    if (!posts || !Array.isArray(posts) || posts.length === 0) {
-      return res.status(400).json({ error: 'Se requiere al menos una publicación' });
+  // Parsear horas laborales (formato "HH:MM")
+  const [startHour, startMinute] = workStart.split(':').map(Number);
+  const [endHour, endMinute] = workEnd.split(':').map(Number);
+
+  // Calcular minutos totales en el día laboral
+  const workMinutesPerDay = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+
+  // Calcular slots por día (máximo 8 para no saturar)
+  const maxSlotsPerDay = Math.min(8, Math.floor(workMinutesPerDay / 60));
+  const slotsPerDay = Math.min(maxSlotsPerDay, totalSlots);
+
+  // Calcular días necesarios
+  const totalDays = Math.ceil(totalSlots / slotsPerDay);
+
+  // Calcular intervalo entre slots en minutos
+  const intervalMinutes = Math.floor(workMinutesPerDay / slotsPerDay);
+
+  // Fecha de inicio
+  const start = new Date(startDate);
+  start.setHours(startHour, startMinute, 0, 0);
+
+  let currentDate = new Date(start);
+  let slotsCreated = 0;
+
+  // Horarios óptimos preferidos (en horas): 9am, 12pm, 3pm, 6pm
+  const preferredHours = [9, 12, 15, 18];
+
+  for (let day = 0; day < totalDays && slotsCreated < totalSlots; day++) {
+    // Saltar fines de semana (opcional)
+    const dayOfWeek = currentDate.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      currentDate.setDate(currentDate.getDate() + 1);
+      currentDate.setHours(startHour, startMinute, 0, 0);
+      continue;
     }
 
-    if (!interval || interval <= 0) {
-      return res.status(400).json({ error: 'El intervalo debe ser mayor a 0' });
-    }
+    const slotsForToday = Math.min(slotsPerDay, totalSlots - slotsCreated);
 
-    const scheduledPosts = await loadScheduledPosts();
-    const startDate = startTime ? new Date(startTime) : new Date();
-
-    // Crear posts programados con sus horarios
-    const newPosts = posts.map((content, index) => {
-      const scheduledTime = new Date(startDate.getTime() + (interval * index * 60 * 1000));
-      return {
-        id: Date.now() + index,
-        content,
-        scheduledTime: scheduledTime.toISOString(),
-        timezone,
-        status: 'pending',
+    for (let i = 0; i < slotsForToday; i++) {
+      const slot = {
+        scheduledTime: new Date(currentDate).toISOString(),
+        status: 'empty', // empty, filled, published, failed
+        content: null,
         createdAt: new Date().toISOString()
       };
-    });
 
-    scheduledPosts.push(...newPosts);
-    await saveScheduledPosts(scheduledPosts);
+      slots.push(slot);
+      slotsCreated++;
 
-    res.json({
-      success: true,
-      message: `${newPosts.length} publicaciones programadas correctamente`,
-      posts: newPosts
-    });
-  } catch (error) {
-    console.error('Error al programar publicaciones:', error);
-    res.status(500).json({ error: 'Error al programar publicaciones' });
+      // Avanzar al siguiente slot
+      currentDate = new Date(currentDate.getTime() + intervalMinutes * 60 * 1000);
+
+      // Si pasamos la hora de fin, pasar al siguiente día
+      if (currentDate.getHours() >= endHour) {
+        break;
+      }
+    }
+
+    // Preparar para el siguiente día
+    currentDate.setDate(currentDate.getDate() + 1);
+    currentDate.setHours(startHour, startMinute, 0, 0);
   }
-});
 
-// Endpoint para obtener publicaciones programadas
-app.get('/api/scheduled', async (req, res) => {
-  try {
-    const posts = await loadScheduledPosts();
-    res.json(posts);
-  } catch (error) {
-    console.error('Error al obtener publicaciones:', error);
-    res.status(500).json({ error: 'Error al obtener publicaciones' });
-  }
-});
+  return slots;
+}
 
-// Endpoint para eliminar una publicación programada
-app.delete('/api/scheduled/:id', async (req, res) => {
-  try {
-    const postId = parseInt(req.params.id);
-    let posts = await loadScheduledPosts();
-    posts = posts.filter(post => post.id !== postId);
-    await saveScheduledPosts(posts);
-    res.json({ success: true, message: 'Publicación eliminada' });
-  } catch (error) {
-    console.error('Error al eliminar publicación:', error);
-    res.status(500).json({ error: 'Error al eliminar publicación' });
-  }
-});
+// ===== ENDPOINTS =====
 
-// Endpoint para verificar conexión con Twitter
+// Verificar conexión con Twitter
 app.get('/api/verify', async (req, res) => {
   try {
     const me = await rwClient.v2.me();
@@ -128,33 +132,196 @@ app.get('/api/verify', async (req, res) => {
   }
 });
 
-// Función para publicar tweets programados
+// Obtener timeline actual
+app.get('/api/timeline/current', async (req, res) => {
+  try {
+    const timeline = await loadTimeline();
+
+    if (timeline) {
+      res.json({ timeline });
+    } else {
+      res.json({ timeline: null });
+    }
+  } catch (error) {
+    console.error('Error al obtener timeline:', error);
+    res.status(500).json({ error: 'Error al obtener timeline' });
+  }
+});
+
+// Crear nuevo timeline
+app.post('/api/timeline/create', async (req, res) => {
+  try {
+    const { totalSlots, workStart, workEnd, timezone, startDate } = req.body;
+
+    if (!totalSlots || !workStart || !workEnd || !timezone) {
+      return res.status(400).json({ error: 'Faltan parámetros requeridos' });
+    }
+
+    // Calcular slots óptimos
+    const slots = calculateOptimalSlots(
+      totalSlots,
+      workStart,
+      workEnd,
+      timezone,
+      startDate
+    );
+
+    const timeline = {
+      id: Date.now().toString(),
+      totalSlots,
+      workStart,
+      workEnd,
+      timezone,
+      startDate,
+      slots,
+      createdAt: new Date().toISOString()
+    };
+
+    await saveTimeline(timeline);
+
+    res.json({
+      success: true,
+      timeline
+    });
+  } catch (error) {
+    console.error('Error al crear timeline:', error);
+    res.status(500).json({ error: 'Error al crear timeline' });
+  }
+});
+
+// Agregar publicación al próximo slot disponible
+app.post('/api/timeline/add-post', async (req, res) => {
+  try {
+    const { timelineId, content } = req.body;
+
+    if (!timelineId || !content) {
+      return res.status(400).json({ error: 'Faltan parámetros requeridos' });
+    }
+
+    const timeline = await loadTimeline();
+
+    if (!timeline || timeline.id !== timelineId) {
+      return res.status(404).json({ error: 'Timeline no encontrado' });
+    }
+
+    // Encontrar próximo slot vacío
+    const emptySlotIndex = timeline.slots.findIndex(slot => slot.status === 'empty');
+
+    if (emptySlotIndex === -1) {
+      return res.status(400).json({ error: 'No hay slots disponibles' });
+    }
+
+    // Llenar el slot
+    timeline.slots[emptySlotIndex].status = 'filled';
+    timeline.slots[emptySlotIndex].content = content;
+    timeline.slots[emptySlotIndex].filledAt = new Date().toISOString();
+
+    await saveTimeline(timeline);
+
+    res.json({
+      success: true,
+      timeline
+    });
+  } catch (error) {
+    console.error('Error al agregar publicación:', error);
+    res.status(500).json({ error: 'Error al agregar publicación' });
+  }
+});
+
+// Eliminar publicación de un slot
+app.post('/api/timeline/remove-post', async (req, res) => {
+  try {
+    const { timelineId, slotIndex } = req.body;
+
+    if (!timelineId || slotIndex === undefined) {
+      return res.status(400).json({ error: 'Faltan parámetros requeridos' });
+    }
+
+    const timeline = await loadTimeline();
+
+    if (!timeline || timeline.id !== timelineId) {
+      return res.status(404).json({ error: 'Timeline no encontrado' });
+    }
+
+    if (slotIndex < 0 || slotIndex >= timeline.slots.length) {
+      return res.status(400).json({ error: 'Índice de slot inválido' });
+    }
+
+    // Vaciar el slot
+    timeline.slots[slotIndex].status = 'empty';
+    timeline.slots[slotIndex].content = null;
+    delete timeline.slots[slotIndex].filledAt;
+
+    await saveTimeline(timeline);
+
+    res.json({
+      success: true,
+      timeline
+    });
+  } catch (error) {
+    console.error('Error al eliminar publicación:', error);
+    res.status(500).json({ error: 'Error al eliminar publicación' });
+  }
+});
+
+// Reiniciar timeline
+app.post('/api/timeline/reset', async (req, res) => {
+  try {
+    const { timelineId } = req.body;
+
+    const timeline = await loadTimeline();
+
+    if (!timeline || timeline.id !== timelineId) {
+      return res.status(404).json({ error: 'Timeline no encontrado' });
+    }
+
+    // Eliminar timeline
+    await fs.unlink(TIMELINE_FILE).catch(() => {});
+
+    res.json({
+      success: true
+    });
+  } catch (error) {
+    console.error('Error al reiniciar timeline:', error);
+    res.status(500).json({ error: 'Error al reiniciar timeline' });
+  }
+});
+
+// ===== PUBLICADOR AUTOMÁTICO =====
 async function checkAndPublishScheduledPosts() {
   try {
-    const posts = await loadScheduledPosts();
-    const now = new Date();
+    const timeline = await loadTimeline();
 
-    for (const post of posts) {
-      if (post.status === 'pending') {
-        const scheduledTime = new Date(post.scheduledTime);
+    if (!timeline) return;
+
+    const now = new Date();
+    let updated = false;
+
+    for (const slot of timeline.slots) {
+      if (slot.status === 'filled') {
+        const scheduledTime = new Date(slot.scheduledTime);
 
         if (now >= scheduledTime) {
           try {
-            console.log(`Publicando: "${post.content.substring(0, 50)}..."`);
-            await rwClient.v2.tweet(post.content);
-            post.status = 'published';
-            post.publishedAt = now.toISOString();
-            console.log('✓ Publicación exitosa');
+            console.log(`📤 Publicando: "${slot.content.substring(0, 50)}..."`);
+            await rwClient.v2.tweet(slot.content);
+            slot.status = 'published';
+            slot.publishedAt = now.toISOString();
+            updated = true;
+            console.log('✅ Publicación exitosa');
           } catch (error) {
-            console.error('✗ Error al publicar:', error);
-            post.status = 'failed';
-            post.error = error.message;
+            console.error('❌ Error al publicar:', error.message);
+            slot.status = 'failed';
+            slot.error = error.message;
+            updated = true;
           }
         }
       }
     }
 
-    await saveScheduledPosts(posts);
+    if (updated) {
+      await saveTimeline(timeline);
+    }
   } catch (error) {
     console.error('Error en checkAndPublishScheduledPosts:', error);
   }
@@ -163,7 +330,9 @@ async function checkAndPublishScheduledPosts() {
 // Verificar cada minuto si hay posts para publicar
 cron.schedule('* * * * *', checkAndPublishScheduledPosts);
 
+// Iniciar servidor
 app.listen(PORT, () => {
   console.log(`\n🚀 XSchedule-X corriendo en http://localhost:${PORT}`);
-  console.log('📅 Programador de tweets activo\n');
+  console.log('📅 Programador inteligente de tweets activo');
+  console.log('⚡ Sistema de slots con horarios óptimos\n');
 });

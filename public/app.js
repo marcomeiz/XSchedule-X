@@ -1,221 +1,285 @@
-// Elementos del DOM
-const form = document.getElementById('scheduleForm');
-const postCountInput = document.getElementById('postCount');
-const intervalInput = document.getElementById('interval');
-const timezoneSelect = document.getElementById('timezone');
-const startTimeInput = document.getElementById('startTime');
-const postsContainer = document.getElementById('postsContainer');
-const scheduledPostsContainer = document.getElementById('scheduledPosts');
-const userInfoDiv = document.getElementById('userInfo');
-const toast = document.getElementById('toast');
+// ===== ESTADO GLOBAL =====
+let appState = {
+    timeline: null, // { totalSlots, workStart, workEnd, timezone, startDate, slots: [] }
+    timelineId: null // ID único del timeline actual
+};
 
-// Estado
-let postInputs = [];
+// ===== ELEMENTOS DEL DOM =====
+const elements = {
+    // Setup
+    setupSection: document.getElementById('setupSection'),
+    setupHeader: document.querySelector('.setup-header'),
+    setupContent: document.getElementById('setupContent'),
+    setupForm: document.getElementById('setupForm'),
+    setupArrow: document.getElementById('setupArrow'),
 
-// Inicializar
+    // Progress
+    progressSection: document.getElementById('progressSection'),
+    usedSlots: document.getElementById('usedSlots'),
+    totalSlotsDisplay: document.getElementById('totalSlotsDisplay'),
+    progressPercentage: document.getElementById('progressPercentage'),
+    progressFill: document.getElementById('progressFill'),
+
+    // Input
+    inputSection: document.getElementById('inputSection'),
+    postForm: document.getElementById('postForm'),
+    postContent: document.getElementById('postContent'),
+    charCount: document.getElementById('charCount'),
+    nextSlotIndicator: document.getElementById('nextSlotIndicator'),
+
+    // Timeline
+    timelineSection: document.getElementById('timelineSection'),
+    timeline: document.getElementById('timeline'),
+
+    // Other
+    emptyState: document.getElementById('emptyState'),
+    userInfo: document.getElementById('userInfo'),
+    toast: document.getElementById('toast'),
+    confetti: document.getElementById('confetti')
+};
+
+// ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', () => {
-    initializePostInputs();
-    loadScheduledPosts();
     verifyTwitterConnection();
+    loadExistingTimeline();
 
-    // Actualizar publicaciones cada 10 segundos
-    setInterval(loadScheduledPosts, 10000);
+    // Event Listeners
+    elements.setupForm.addEventListener('submit', handleSetupSubmit);
+    elements.postForm.addEventListener('submit', handlePostSubmit);
+    elements.postContent.addEventListener('input', updateCharCount);
 });
 
-// Verificar conexión con Twitter
+// ===== VERIFICAR CONEXIÓN TWITTER =====
 async function verifyTwitterConnection() {
     try {
         const response = await fetch('/api/verify');
         const data = await response.json();
 
         if (data.success) {
-            userInfoDiv.innerHTML = `
+            elements.userInfo.innerHTML = `
                 <span style="color: var(--success)">✓</span>
-                <span>Conectado como @${data.user.username}</span>
+                <span>@${data.user.username}</span>
             `;
         } else {
-            userInfoDiv.innerHTML = `
+            elements.userInfo.innerHTML = `
                 <span style="color: var(--error)">✗</span>
-                <span>Error de conexión</span>
+                <span>Sin conexión</span>
             `;
-            showToast('Error al conectar con Twitter. Verifica tus credenciales.', 'error');
         }
     } catch (error) {
         console.error('Error:', error);
-        userInfoDiv.innerHTML = `
-            <span style="color: var(--error)">✗</span>
-            <span>Error de conexión</span>
-        `;
     }
 }
 
-// Crear campos de entrada para publicaciones
-function initializePostInputs() {
-    const count = parseInt(postCountInput.value);
-    postsContainer.innerHTML = '';
-    postInputs = [];
+// ===== TOGGLE SETUP =====
+function toggleSetup() {
+    elements.setupHeader.classList.toggle('collapsed');
+    elements.setupContent.classList.toggle('collapsed');
+}
 
-    for (let i = 0; i < count; i++) {
-        const postDiv = document.createElement('div');
-        postDiv.className = 'post-input';
+// ===== CARGAR TIMELINE EXISTENTE =====
+async function loadExistingTimeline() {
+    try {
+        const response = await fetch('/api/timeline/current');
+        const data = await response.json();
 
-        const textarea = document.createElement('textarea');
-        textarea.placeholder = `Publicación ${i + 1} (máx. 280 caracteres)`;
-        textarea.maxLength = 280;
-        textarea.required = true;
-        textarea.addEventListener('input', (e) => updateCharCount(e.target, charCount));
-
-        const charCount = document.createElement('div');
-        charCount.className = 'char-count';
-        charCount.textContent = '0/280';
-
-        postDiv.appendChild(textarea);
-        postDiv.appendChild(charCount);
-        postsContainer.appendChild(postDiv);
-
-        postInputs.push(textarea);
+        if (data.timeline) {
+            appState.timeline = data.timeline;
+            appState.timelineId = data.timeline.id;
+            renderTimeline();
+            showWorkArea();
+            toggleSetup(); // Colapsar setup
+        }
+    } catch (error) {
+        console.log('No hay timeline existente');
     }
 }
 
-// Actualizar contador de caracteres
-function updateCharCount(textarea, charCountDiv) {
-    const length = textarea.value.length;
-    charCountDiv.textContent = `${length}/280`;
-
-    if (length > 260) {
-        charCountDiv.className = 'char-count error';
-    } else if (length > 240) {
-        charCountDiv.className = 'char-count warning';
-    } else {
-        charCountDiv.className = 'char-count';
-    }
-}
-
-// Event listeners
-postCountInput.addEventListener('change', initializePostInputs);
-
-form.addEventListener('submit', async (e) => {
+// ===== HANDLE SETUP SUBMIT =====
+async function handleSetupSubmit(e) {
     e.preventDefault();
 
-    const posts = postInputs.map(input => input.value.trim()).filter(Boolean);
-    const interval = parseInt(intervalInput.value);
-    const timezone = timezoneSelect.value;
-    const startTime = startTimeInput.value || new Date().toISOString();
-
-    if (posts.length === 0) {
-        showToast('Por favor, escribe al menos una publicación', 'error');
-        return;
-    }
+    const totalSlots = parseInt(document.getElementById('totalSlots').value);
+    const timezone = document.getElementById('timezone').value;
+    const workStart = document.getElementById('workStart').value;
+    const workEnd = document.getElementById('workEnd').value;
+    const startDate = document.getElementById('startDate').value || new Date().toISOString().split('T')[0];
 
     try {
-        const response = await fetch('/api/schedule', {
+        // Crear timeline en el backend
+        const response = await fetch('/api/timeline/create', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                posts,
-                interval,
+                totalSlots,
+                workStart,
+                workEnd,
                 timezone,
-                startTime
+                startDate
             })
         });
 
         const data = await response.json();
 
         if (data.success) {
-            showToast(data.message, 'success');
-            form.reset();
-            initializePostInputs();
-            loadScheduledPosts();
+            appState.timeline = data.timeline;
+            appState.timelineId = data.timeline.id;
+            renderTimeline();
+            showWorkArea();
+            toggleSetup();
+            showToast('✨ Timeline creado con éxito', 'success');
         } else {
-            showToast(data.error || 'Error al programar publicaciones', 'error');
+            showToast(data.error || 'Error al crear timeline', 'error');
         }
     } catch (error) {
         console.error('Error:', error);
         showToast('Error al conectar con el servidor', 'error');
     }
-});
+}
 
-// Cargar publicaciones programadas
-async function loadScheduledPosts() {
-    try {
-        const response = await fetch('/api/scheduled');
-        const posts = await response.json();
+// ===== MOSTRAR ÁREA DE TRABAJO =====
+function showWorkArea() {
+    elements.emptyState.classList.add('hidden');
+    elements.progressSection.classList.remove('hidden');
+    elements.inputSection.classList.remove('hidden');
+    elements.timelineSection.classList.remove('hidden');
 
-        if (posts.length === 0) {
-            scheduledPostsContainer.innerHTML = `
-                <div class="empty-state">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                    </svg>
-                    <p>No hay publicaciones programadas</p>
-                </div>
-            `;
-            return;
-        }
+    updateProgress();
+}
 
-        // Ordenar por fecha programada
-        posts.sort((a, b) => new Date(a.scheduledTime) - new Date(b.scheduledTime));
+// ===== RENDERIZAR TIMELINE =====
+function renderTimeline() {
+    if (!appState.timeline) return;
 
-        scheduledPostsContainer.innerHTML = posts.map(post => {
-            const scheduledDate = new Date(post.scheduledTime);
-            const now = new Date();
-            const isPast = scheduledDate < now;
-            const timeStr = scheduledDate.toLocaleString('es-ES', {
-                dateStyle: 'short',
-                timeStyle: 'short',
-                timeZone: post.timezone
-            });
+    const { slots } = appState.timeline;
+    elements.timeline.innerHTML = '';
 
-            return `
-                <div class="scheduled-post">
-                    <div class="post-header">
-                        <div class="post-time">
-                            ${isPast ? '🕐' : '⏰'} ${timeStr} (${post.timezone})
-                        </div>
-                        <div class="post-status ${post.status}">${post.status}</div>
-                    </div>
-                    <div class="post-content">${escapeHtml(post.content)}</div>
-                    ${post.status === 'pending' ? `
-                        <div class="post-actions">
-                            <button class="btn-delete" onclick="deletePost(${post.id})">
-                                Eliminar
-                            </button>
-                        </div>
+    // Encontrar próximo slot disponible
+    const nextEmptyIndex = slots.findIndex(slot => slot.status === 'empty');
+
+    slots.forEach((slot, index) => {
+        const isNextAvailable = index === nextEmptyIndex;
+        const itemClass = `timeline-item ${slot.status} ${isNextAvailable ? 'next-available' : ''}`;
+
+        const date = new Date(slot.scheduledTime);
+        const timeStr = date.toLocaleString('es-ES', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: appState.timeline.timezone
+        });
+
+        const item = document.createElement('div');
+        item.className = itemClass;
+        item.innerHTML = `
+            <div class="timeline-slot">
+                <div class="slot-number">#${index + 1}</div>
+                <div class="slot-time">${timeStr}</div>
+            </div>
+            <div class="timeline-content">
+                ${slot.status === 'empty' ?
+                    `<div class="timeline-text" style="color: var(--text-secondary); font-style: italic;">Slot disponible</div>` :
+                    `<div class="timeline-text">${escapeHtml(slot.content)}</div>`
+                }
+                <div class="timeline-status">
+                    <span class="status-badge ${slot.status}">
+                        ${slot.status === 'empty' ? '⏳ Vacío' :
+                          slot.status === 'filled' ? '📝 Programado' :
+                          slot.status === 'published' ? '✅ Publicado' :
+                          '❌ Error'}
+                    </span>
+                    ${slot.status === 'filled' ? `
+                        <button class="btn-delete-slot" onclick="deleteSlot(${index})">Eliminar</button>
                     ` : ''}
-                    ${post.error ? `<div style="color: var(--error); font-size: 12px; margin-top: 8px;">Error: ${escapeHtml(post.error)}</div>` : ''}
                 </div>
-            `;
-        }).join('');
-    } catch (error) {
-        console.error('Error:', error);
-        scheduledPostsContainer.innerHTML = `
-            <div class="empty-state">
-                <p style="color: var(--error)">Error al cargar publicaciones</p>
             </div>
         `;
+        elements.timeline.appendChild(item);
+    });
+
+    updateProgress();
+    updateNextSlotIndicator();
+}
+
+// ===== ACTUALIZAR PROGRESO =====
+function updateProgress() {
+    if (!appState.timeline) return;
+
+    const { slots, totalSlots } = appState.timeline;
+    const usedCount = slots.filter(s => s.status !== 'empty').length;
+    const percentage = Math.round((usedCount / totalSlots) * 100);
+
+    elements.usedSlots.textContent = usedCount;
+    elements.totalSlotsDisplay.textContent = totalSlots;
+    elements.progressPercentage.textContent = `${percentage}%`;
+    elements.progressFill.style.width = `${percentage}%`;
+
+    // Confetti si se completó todo
+    if (usedCount === totalSlots && usedCount > 0) {
+        launchConfetti();
     }
 }
 
-// Eliminar publicación
-async function deletePost(postId) {
-    if (!confirm('¿Estás seguro de eliminar esta publicación?')) {
+// ===== ACTUALIZAR INDICADOR DE PRÓXIMO SLOT =====
+function updateNextSlotIndicator() {
+    if (!appState.timeline) return;
+
+    const nextSlot = appState.timeline.slots.find(s => s.status === 'empty');
+
+    if (nextSlot) {
+        const date = new Date(nextSlot.scheduledTime);
+        const timeStr = date.toLocaleString('es-ES', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: appState.timeline.timezone
+        });
+        elements.nextSlotIndicator.textContent = `Próximo: ${timeStr}`;
+    } else {
+        elements.nextSlotIndicator.textContent = '🎉 ¡Timeline completo!';
+        elements.postForm.querySelector('button[type="submit"]').disabled = true;
+        elements.postContent.disabled = true;
+    }
+}
+
+// ===== HANDLE POST SUBMIT =====
+async function handlePostSubmit(e) {
+    e.preventDefault();
+
+    const content = elements.postContent.value.trim();
+
+    if (!content) {
+        showToast('Escribe algo para publicar', 'warning');
+        return;
+    }
+
+    if (!appState.timelineId) {
+        showToast('Primero configura tu timeline', 'error');
         return;
     }
 
     try {
-        const response = await fetch(`/api/scheduled/${postId}`, {
-            method: 'DELETE'
+        const response = await fetch('/api/timeline/add-post', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                timelineId: appState.timelineId,
+                content
+            })
         });
 
         const data = await response.json();
 
         if (data.success) {
-            showToast('Publicación eliminada', 'success');
-            loadScheduledPosts();
+            appState.timeline = data.timeline;
+            renderTimeline();
+            elements.postContent.value = '';
+            updateCharCount();
+            showToast('✅ Publicación agregada al timeline', 'success');
         } else {
-            showToast('Error al eliminar publicación', 'error');
+            showToast(data.error || 'Error al agregar publicación', 'error');
         }
     } catch (error) {
         console.error('Error:', error);
@@ -223,22 +287,155 @@ async function deletePost(postId) {
     }
 }
 
-// Mostrar toast
-function showToast(message, type = 'success') {
-    toast.textContent = message;
-    toast.className = `toast ${type} show`;
+// ===== ELIMINAR SLOT =====
+async function deleteSlot(slotIndex) {
+    if (!confirm('¿Eliminar esta publicación del slot?')) return;
+
+    try {
+        const response = await fetch('/api/timeline/remove-post', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                timelineId: appState.timelineId,
+                slotIndex
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            appState.timeline = data.timeline;
+            renderTimeline();
+            showToast('Publicación eliminada', 'success');
+        } else {
+            showToast(data.error || 'Error al eliminar', 'error');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showToast('Error al conectar con el servidor', 'error');
+    }
+}
+
+// ===== RESET TIMELINE =====
+async function resetTimeline() {
+    if (!confirm('¿Reiniciar el timeline? Esto eliminará todas las publicaciones programadas.')) return;
+
+    try {
+        const response = await fetch('/api/timeline/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                timelineId: appState.timelineId
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            appState.timeline = null;
+            appState.timelineId = null;
+
+            elements.progressSection.classList.add('hidden');
+            elements.inputSection.classList.add('hidden');
+            elements.timelineSection.classList.add('hidden');
+            elements.emptyState.classList.remove('hidden');
+
+            // Expandir setup
+            elements.setupHeader.classList.remove('collapsed');
+            elements.setupContent.classList.remove('collapsed');
+
+            showToast('Timeline reiniciado', 'success');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showToast('Error al reiniciar timeline', 'error');
+    }
+}
+
+// ===== ACTUALIZAR CONTADOR DE CARACTERES =====
+function updateCharCount() {
+    const length = elements.postContent.value.length;
+    elements.charCount.textContent = length;
+    elements.charCount.style.color = length > 260 ? 'var(--error)' : length > 240 ? 'var(--warning)' : 'var(--primary)';
+}
+
+// ===== CONFETTI =====
+function launchConfetti() {
+    const canvas = elements.confetti;
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const confettiPieces = [];
+    const colors = ['#1da1f2', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
+
+    for (let i = 0; i < 150; i++) {
+        confettiPieces.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height - canvas.height,
+            size: Math.random() * 8 + 4,
+            speedY: Math.random() * 3 + 2,
+            speedX: Math.random() * 2 - 1,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            rotation: Math.random() * 360,
+            rotationSpeed: Math.random() * 10 - 5
+        });
+    }
+
+    let animationId;
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        confettiPieces.forEach((piece, index) => {
+            ctx.save();
+            ctx.translate(piece.x, piece.y);
+            ctx.rotate(piece.rotation * Math.PI / 180);
+            ctx.fillStyle = piece.color;
+            ctx.fillRect(-piece.size / 2, -piece.size / 2, piece.size, piece.size);
+            ctx.restore();
+
+            piece.y += piece.speedY;
+            piece.x += piece.speedX;
+            piece.rotation += piece.rotationSpeed;
+
+            if (piece.y > canvas.height) {
+                confettiPieces.splice(index, 1);
+            }
+        });
+
+        if (confettiPieces.length > 0) {
+            animationId = requestAnimationFrame(animate);
+        } else {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    }
+
+    animate();
 
     setTimeout(() => {
-        toast.classList.remove('show');
+        if (animationId) cancelAnimationFrame(animationId);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }, 5000);
+}
+
+// ===== TOAST =====
+function showToast(message, type = 'success') {
+    elements.toast.textContent = message;
+    elements.toast.className = `toast ${type} show`;
+
+    setTimeout(() => {
+        elements.toast.classList.remove('show');
     }, 3000);
 }
 
-// Utilidad para escapar HTML
+// ===== UTILS =====
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
-// Hacer deletePost disponible globalmente
-window.deletePost = deletePost;
+// Hacer funciones disponibles globalmente
+window.toggleSetup = toggleSetup;
+window.deleteSlot = deleteSlot;
+window.resetTimeline = resetTimeline;

@@ -1,5 +1,6 @@
 node_modules/
 .env
+timeline.json
 scheduled-posts.json
 *.log
 .DS_Store
