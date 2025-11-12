@@ -130,6 +130,11 @@ body::before {
     animation: viewEnter var(--duration-slow) var(--ease-spring);
 }
 
+/* Hidden utility class */
+.hidden {
+    display: none !important;
+}
+
 .view.hidden {
     display: none;
 }
