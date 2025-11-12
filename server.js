@@ -728,15 +728,23 @@ async function checkAndPublishScheduledPosts() {
 
     if (!slots || slots.length === 0) return;
 
-    console.log(`📤 Publicando ${slots.length} tweets...`);
+    console.log(`\n📤 Publicando ${slots.length} tweets...`);
+    console.log(`⏰ Timestamp: ${now.toISO()}`);
+
+    // Debug: Mostrar todos los slots que se van a publicar
+    slots.forEach((s, idx) => {
+      console.log(`  ${idx + 1}. Slot #${s.id} - "${s.content.substring(0, 40)}..."`);
+    });
 
     for (const slot of slots) {
       let tweetId = null;
       let twitterSuccess = false;
 
+      console.log(`\n--- SLOT #${slot.id} | Status: ${slot.status} | Scheduled: ${slot.scheduled_time} ---`);
+
       // Step 1: Try to publish to Twitter
       try {
-        console.log(`📤 "${slot.content.substring(0, 50)}..."`);
+        console.log(`📤 Intentando publicar: "${slot.content.substring(0, 50)}..."`);
         const tweet = await twitterClient.readWrite.v2.tweet(slot.content);
 
         // Verificar que obtuvimos un tweet ID válido
@@ -751,10 +759,12 @@ async function checkAndPublishScheduledPosts() {
         }
       } catch (twitterError) {
         // Twitter rejected - this is a legitimate failure
-        console.error(`❌ Error de Twitter completo:`, twitterError);
+        console.error(`\n❌ ERROR EN SLOT #${slot.id}`);
+        console.error(`❌ Error completo:`, twitterError);
         console.error(`❌ Error mensaje:`, twitterError.message);
         console.error(`❌ Error code:`, twitterError.code);
-        console.error(`❌ Error data:`, twitterError.data);
+        console.error(`❌ Error data:`, JSON.stringify(twitterError.data, null, 2));
+        console.error(`❌ Es duplicate content?:`, twitterError.message?.includes('duplicate'));
 
         // Si el error tiene un tweet ID en algún lugar, aún podría haberse publicado
         let possibleTweetId = null;
