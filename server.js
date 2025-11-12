@@ -738,19 +738,37 @@ async function checkAndPublishScheduledPosts() {
       try {
         console.log(`📤 "${slot.content.substring(0, 50)}..."`);
         const tweet = await twitterClient.readWrite.v2.tweet(slot.content);
-        tweetId = tweet.data.id;
-        twitterSuccess = true;
-        console.log(`✅ Publicado en Twitter (ID: ${tweetId})`);
+
+        // Verificar que obtuvimos un tweet ID válido
+        if (tweet && tweet.data && tweet.data.id) {
+          tweetId = tweet.data.id;
+          twitterSuccess = true;
+          console.log(`✅ Publicado en Twitter (ID: ${tweetId})`);
+        } else {
+          // Twitter respondió pero sin ID válido
+          console.error(`⚠️  Twitter respondió sin ID válido:`, JSON.stringify(tweet));
+          throw new Error('Twitter no devolvió un ID de tweet válido');
+        }
       } catch (twitterError) {
         // Twitter rejected - this is a legitimate failure
-        console.error(`❌ Error de Twitter:`, twitterError.message);
+        console.error(`❌ Error de Twitter completo:`, twitterError);
+        console.error(`❌ Error mensaje:`, twitterError.message);
+        console.error(`❌ Error code:`, twitterError.code);
+        console.error(`❌ Error data:`, twitterError.data);
+
+        // Si el error tiene un tweet ID en algún lugar, aún podría haberse publicado
+        let possibleTweetId = null;
+        if (twitterError.data && twitterError.data.id) {
+          possibleTweetId = twitterError.data.id;
+          console.log(`⚠️  ADVERTENCIA: Error contiene tweet ID ${possibleTweetId} - el tweet podría estar publicado`);
+        }
 
         try {
           await supabase
             .from('slots')
             .update({
               status: 'failed',
-              error_message: `Twitter error: ${twitterError.message}`
+              error_message: `Twitter error: ${twitterError.message}${possibleTweetId ? ` (possible ID: ${possibleTweetId})` : ''}`
             })
             .eq('id', slot.id);
         } catch (dbError) {
