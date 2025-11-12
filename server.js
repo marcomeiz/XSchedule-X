@@ -2,14 +2,10 @@ import express from 'express';
 import { TwitterApi } from 'twitter-api-v2';
 import cron from 'node-cron';
 import dotenv from 'dotenv';
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { supabase, getAuthenticatedClient } from './lib/supabase.js';
+import { encryptTwitterCredentials, decryptTwitterCredentials } from './lib/encryption.js';
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,66 +14,169 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static('public'));
 
-// Inicializar Twitter Client
-const twitterClient = new TwitterApi({
-  appKey: process.env.TWITTER_API_KEY,
-  appSecret: process.env.TWITTER_API_SECRET,
-  accessToken: process.env.TWITTER_ACCESS_TOKEN,
-  accessSecret: process.env.TWITTER_ACCESS_SECRET,
-});
+// ===== MIDDLEWARE DE AUTENTICACIÓN =====
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
 
-const rwClient = twitterClient.readWrite;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
 
-// Archivo para almacenar timeline
-const TIMELINE_FILE = 'timeline.json';
+  const token = authHeader.split(' ')[1];
 
-// ===== FUNCIONES DE ALMACENAMIENTO =====
-async function loadTimeline() {
   try {
-    const data = await fs.readFile(TIMELINE_FILE, 'utf8');
-    return JSON.parse(data);
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      return res.status(401).json({ error: 'Token inválido' });
+    }
+
+    req.user = user;
+    req.token = token;
+    req.supabase = getAuthenticatedClient(token);
+    next();
   } catch (error) {
-    return null;
+    console.error('Error en auth middleware:', error);
+    res.status(401).json({ error: 'No autorizado' });
   }
 }
 
-async function saveTimeline(timeline) {
-  await fs.writeFile(TIMELINE_FILE, JSON.stringify(timeline, null, 2));
-}
+// ===== ENDPOINTS DE AUTENTICACIÓN =====
+
+// Registro
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password
+    });
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      session: data.session,
+      user: data.user
+    });
+  } catch (error) {
+    console.error('Error en registro:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      session: data.session,
+      user: data.user
+    });
+  } catch (error) {
+    console.error('Error en login:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Logout
+app.post('/api/auth/logout', requireAuth, async (req, res) => {
+  try {
+    await req.supabase.auth.signOut();
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error en logout:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Obtener usuario actual
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+  res.json({ user: req.user });
+});
+
+// ===== CREDENCIALES DE TWITTER =====
+
+// Guardar credenciales de Twitter
+app.post('/api/twitter/credentials', requireAuth, async (req, res) => {
+  try {
+    const { apiKey, apiSecret, accessToken, accessSecret } = req.body;
+
+    // Encriptar credenciales
+    const encrypted = encryptTwitterCredentials({
+      apiKey,
+      apiSecret,
+      accessToken,
+      accessSecret
+    });
+
+    // Insertar o actualizar en Supabase
+    const { data, error } = await req.supabase
+      .from('twitter_credentials')
+      .upsert({
+        user_id: req.user.id,
+        ...encrypted
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error al guardar credenciales:', error);
+    res.status(500).json({ error: 'Error al guardar credenciales' });
+  }
+});
+
+// Verificar si el usuario tiene credenciales
+app.get('/api/twitter/credentials/check', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await req.supabase
+      .from('twitter_credentials')
+      .select('id')
+      .eq('user_id', req.user.id)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    res.json({ hasCredentials: !!data });
+  } catch (error) {
+    console.error('Error al verificar credenciales:', error);
+    res.status(500).json({ error: 'Error al verificar credenciales' });
+  }
+});
 
 // ===== ALGORITMO DE DISTRIBUCIÓN INTELIGENTE =====
 function calculateOptimalSlots(totalSlots, workStart, workEnd, timezone, startDate) {
   const slots = [];
 
-  // Parsear horas laborales (formato "HH:MM")
   const [startHour, startMinute] = workStart.split(':').map(Number);
   const [endHour, endMinute] = workEnd.split(':').map(Number);
 
-  // Calcular minutos totales en el día laboral
   const workMinutesPerDay = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
-
-  // Calcular slots por día (máximo 8 para no saturar)
   const maxSlotsPerDay = Math.min(8, Math.floor(workMinutesPerDay / 60));
   const slotsPerDay = Math.min(maxSlotsPerDay, totalSlots);
-
-  // Calcular días necesarios
   const totalDays = Math.ceil(totalSlots / slotsPerDay);
-
-  // Calcular intervalo entre slots en minutos
   const intervalMinutes = Math.floor(workMinutesPerDay / slotsPerDay);
 
-  // Fecha de inicio
   const start = new Date(startDate);
   start.setHours(startHour, startMinute, 0, 0);
 
   let currentDate = new Date(start);
   let slotsCreated = 0;
 
-  // Horarios óptimos preferidos (en horas): 9am, 12pm, 3pm, 6pm
-  const preferredHours = [9, 12, 15, 18];
-
   for (let day = 0; day < totalDays && slotsCreated < totalSlots; day++) {
-    // Saltar fines de semana (opcional)
     const dayOfWeek = currentDate.getDay();
     if (dayOfWeek === 0 || dayOfWeek === 6) {
       currentDate.setDate(currentDate.getDate() + 1);
@@ -88,26 +187,21 @@ function calculateOptimalSlots(totalSlots, workStart, workEnd, timezone, startDa
     const slotsForToday = Math.min(slotsPerDay, totalSlots - slotsCreated);
 
     for (let i = 0; i < slotsForToday; i++) {
-      const slot = {
-        scheduledTime: new Date(currentDate).toISOString(),
-        status: 'empty', // empty, filled, published, failed
-        content: null,
-        createdAt: new Date().toISOString()
-      };
+      slots.push({
+        slot_index: slotsCreated,
+        scheduled_time: new Date(currentDate).toISOString(),
+        status: 'empty',
+        content: null
+      });
 
-      slots.push(slot);
       slotsCreated++;
-
-      // Avanzar al siguiente slot
       currentDate = new Date(currentDate.getTime() + intervalMinutes * 60 * 1000);
 
-      // Si pasamos la hora de fin, pasar al siguiente día
       if (currentDate.getHours() >= endHour) {
         break;
       }
     }
 
-    // Preparar para el siguiente día
     currentDate.setDate(currentDate.getDate() + 1);
     currentDate.setHours(startHour, startMinute, 0, 0);
   }
@@ -115,50 +209,76 @@ function calculateOptimalSlots(totalSlots, workStart, workEnd, timezone, startDa
   return slots;
 }
 
-// ===== ENDPOINTS =====
+// ===== ENDPOINTS DE TIMELINES =====
 
-// Verificar conexión con Twitter
-app.get('/api/verify', async (req, res) => {
+// Obtener todos los timelines del usuario
+app.get('/api/timelines', requireAuth, async (req, res) => {
   try {
-    const me = await rwClient.v2.me();
-    res.json({ success: true, user: me.data });
+    const { data: timelines, error } = await req.supabase
+      .from('timelines')
+      .select('*, slots(*)')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.json({ timelines });
   } catch (error) {
-    console.error('Error al verificar credenciales:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Error al verificar credenciales de Twitter',
-      details: error.message
-    });
+    console.error('Error al obtener timelines:', error);
+    res.status(500).json({ error: 'Error al obtener timelines' });
   }
 });
 
-// Obtener timeline actual
-app.get('/api/timeline/current', async (req, res) => {
+// Obtener un timeline específico
+app.get('/api/timelines/:id', requireAuth, async (req, res) => {
   try {
-    const timeline = await loadTimeline();
+    const { data: timeline, error } = await req.supabase
+      .from('timelines')
+      .select('*, slots(*)')
+      .eq('id', req.params.id)
+      .eq('user_id', req.user.id)
+      .single();
 
-    if (timeline) {
-      res.json({ timeline });
-    } else {
-      res.json({ timeline: null });
+    if (error) throw error;
+
+    if (!timeline) {
+      return res.status(404).json({ error: 'Timeline no encontrado' });
     }
+
+    // Ordenar slots por índice
+    timeline.slots.sort((a, b) => a.slot_index - b.slot_index);
+
+    res.json({ timeline });
   } catch (error) {
     console.error('Error al obtener timeline:', error);
     res.status(500).json({ error: 'Error al obtener timeline' });
   }
 });
 
-// Crear nuevo timeline
-app.post('/api/timeline/create', async (req, res) => {
+// Crear timeline
+app.post('/api/timelines/create', requireAuth, async (req, res) => {
   try {
-    const { totalSlots, workStart, workEnd, timezone, startDate } = req.body;
+    const { name, totalSlots, workStart, workEnd, timezone, startDate } = req.body;
 
-    if (!totalSlots || !workStart || !workEnd || !timezone) {
-      return res.status(400).json({ error: 'Faltan parámetros requeridos' });
-    }
+    // Crear timeline
+    const { data: timeline, error: timelineError } = await req.supabase
+      .from('timelines')
+      .insert({
+        user_id: req.user.id,
+        name: name || 'Mi Timeline',
+        total_slots: totalSlots,
+        work_start: workStart,
+        work_end: workEnd,
+        timezone,
+        start_date: startDate
+      })
+      .select()
+      .single();
+
+    if (timelineError) throw timelineError;
 
     // Calcular slots óptimos
-    const slots = calculateOptimalSlots(
+    const slotsData = calculateOptimalSlots(
       totalSlots,
       workStart,
       workEnd,
@@ -166,18 +286,21 @@ app.post('/api/timeline/create', async (req, res) => {
       startDate
     );
 
-    const timeline = {
-      id: Date.now().toString(),
-      totalSlots,
-      workStart,
-      workEnd,
-      timezone,
-      startDate,
-      slots,
-      createdAt: new Date().toISOString()
-    };
+    // Agregar timeline_id a cada slot
+    const slotsToInsert = slotsData.map(slot => ({
+      ...slot,
+      timeline_id: timeline.id
+    }));
 
-    await saveTimeline(timeline);
+    // Insertar slots
+    const { data: slots, error: slotsError } = await req.supabase
+      .from('slots')
+      .insert(slotsToInsert)
+      .select();
+
+    if (slotsError) throw slotsError;
+
+    timeline.slots = slots;
 
     res.json({
       success: true,
@@ -189,42 +312,64 @@ app.post('/api/timeline/create', async (req, res) => {
   }
 });
 
-// Agregar publicación al próximo slot disponible
-app.post('/api/timeline/add-post', async (req, res) => {
+// Agregar publicación al próximo slot
+app.post('/api/timelines/:id/add-post', requireAuth, async (req, res) => {
   try {
-    const { timelineId, content } = req.body;
+    const { content } = req.body;
+    const timelineId = req.params.id;
 
-    if (!timelineId || !content) {
-      return res.status(400).json({ error: 'Faltan parámetros requeridos' });
-    }
+    // Verificar que el timeline pertenece al usuario
+    const { data: timeline, error: timelineError } = await req.supabase
+      .from('timelines')
+      .select('id')
+      .eq('id', timelineId)
+      .eq('user_id', req.user.id)
+      .single();
 
-    const timeline = await loadTimeline();
-
-    console.log('📥 Add-post - Recibido timelineId:', timelineId, 'tipo:', typeof timelineId);
-    console.log('📋 Timeline cargado - ID:', timeline?.id, 'tipo:', typeof timeline?.id);
-
-    if (!timeline || timeline.id !== timelineId) {
-      console.log('❌ IDs no coinciden o timeline null');
+    if (timelineError || !timeline) {
       return res.status(404).json({ error: 'Timeline no encontrado' });
     }
 
     // Encontrar próximo slot vacío
-    const emptySlotIndex = timeline.slots.findIndex(slot => slot.status === 'empty');
+    const { data: emptySlot, error: slotError } = await req.supabase
+      .from('slots')
+      .select('*')
+      .eq('timeline_id', timelineId)
+      .eq('status', 'empty')
+      .order('slot_index', { ascending: true })
+      .limit(1)
+      .single();
 
-    if (emptySlotIndex === -1) {
+    if (slotError || !emptySlot) {
       return res.status(400).json({ error: 'No hay slots disponibles' });
     }
 
-    // Llenar el slot
-    timeline.slots[emptySlotIndex].status = 'filled';
-    timeline.slots[emptySlotIndex].content = content;
-    timeline.slots[emptySlotIndex].filledAt = new Date().toISOString();
+    // Actualizar slot
+    const { data: updatedSlot, error: updateError } = await req.supabase
+      .from('slots')
+      .update({
+        status: 'filled',
+        content,
+        filled_at: new Date().toISOString()
+      })
+      .eq('id', emptySlot.id)
+      .select()
+      .single();
 
-    await saveTimeline(timeline);
+    if (updateError) throw updateError;
+
+    // Obtener timeline completo actualizado
+    const { data: fullTimeline } = await req.supabase
+      .from('timelines')
+      .select('*, slots(*)')
+      .eq('id', timelineId)
+      .single();
+
+    fullTimeline.slots.sort((a, b) => a.slot_index - b.slot_index);
 
     res.json({
       success: true,
-      timeline
+      timeline: fullTimeline
     });
   } catch (error) {
     console.error('Error al agregar publicación:', error);
@@ -233,34 +378,46 @@ app.post('/api/timeline/add-post', async (req, res) => {
 });
 
 // Eliminar publicación de un slot
-app.post('/api/timeline/remove-post', async (req, res) => {
+app.delete('/api/timelines/:id/slots/:slotId', requireAuth, async (req, res) => {
   try {
-    const { timelineId, slotIndex } = req.body;
+    const { id: timelineId, slotId } = req.params;
 
-    if (!timelineId || slotIndex === undefined) {
-      return res.status(400).json({ error: 'Faltan parámetros requeridos' });
-    }
+    // Verificar que el slot pertenece al timeline del usuario
+    const { data: slot, error: slotError } = await req.supabase
+      .from('slots')
+      .select('*, timelines!inner(user_id)')
+      .eq('id', slotId)
+      .eq('timeline_id', timelineId)
+      .single();
 
-    const timeline = await loadTimeline();
-
-    if (!timeline || timeline.id !== timelineId) {
-      return res.status(404).json({ error: 'Timeline no encontrado' });
-    }
-
-    if (slotIndex < 0 || slotIndex >= timeline.slots.length) {
-      return res.status(400).json({ error: 'Índice de slot inválido' });
+    if (slotError || !slot || slot.timelines.user_id !== req.user.id) {
+      return res.status(404).json({ error: 'Slot no encontrado' });
     }
 
     // Vaciar el slot
-    timeline.slots[slotIndex].status = 'empty';
-    timeline.slots[slotIndex].content = null;
-    delete timeline.slots[slotIndex].filledAt;
+    const { error: updateError } = await req.supabase
+      .from('slots')
+      .update({
+        status: 'empty',
+        content: null,
+        filled_at: null
+      })
+      .eq('id', slotId);
 
-    await saveTimeline(timeline);
+    if (updateError) throw updateError;
+
+    // Obtener timeline completo actualizado
+    const { data: fullTimeline } = await req.supabase
+      .from('timelines')
+      .select('*, slots(*)')
+      .eq('id', timelineId)
+      .single();
+
+    fullTimeline.slots.sort((a, b) => a.slot_index - b.slot_index);
 
     res.json({
       success: true,
-      timeline
+      timeline: fullTimeline
     });
   } catch (error) {
     console.error('Error al eliminar publicación:', error);
@@ -268,75 +425,120 @@ app.post('/api/timeline/remove-post', async (req, res) => {
   }
 });
 
-// Reiniciar timeline
-app.post('/api/timeline/reset', async (req, res) => {
+// Eliminar timeline
+app.delete('/api/timelines/:id', requireAuth, async (req, res) => {
   try {
-    const { timelineId } = req.body;
+    const { id } = req.params;
 
-    const timeline = await loadTimeline();
+    // Verificar propiedad y eliminar (CASCADE eliminará los slots automáticamente)
+    const { error } = await req.supabase
+      .from('timelines')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', req.user.id);
 
-    if (!timeline || timeline.id !== timelineId) {
-      return res.status(404).json({ error: 'Timeline no encontrado' });
-    }
+    if (error) throw error;
 
-    // Eliminar timeline
-    await fs.unlink(TIMELINE_FILE).catch(() => {});
-
-    res.json({
-      success: true
-    });
+    res.json({ success: true });
   } catch (error) {
-    console.error('Error al reiniciar timeline:', error);
-    res.status(500).json({ error: 'Error al reiniciar timeline' });
+    console.error('Error al eliminar timeline:', error);
+    res.status(500).json({ error: 'Error al eliminar timeline' });
   }
 });
 
-// ===== PUBLICADOR AUTOMÁTICO =====
+// ===== AUTO-PUBLISHER =====
 async function checkAndPublishScheduledPosts() {
   try {
-    const timeline = await loadTimeline();
-
-    if (!timeline) return;
-
     const now = new Date();
-    let updated = false;
 
-    for (const slot of timeline.slots) {
-      if (slot.status === 'filled') {
-        const scheduledTime = new Date(slot.scheduledTime);
+    // Obtener todos los slots que están listos para publicar
+    const { data: slots, error } = await supabase
+      .from('slots')
+      .select('*, timelines!inner(user_id)')
+      .eq('status', 'filled')
+      .lte('scheduled_time', now.toISOString());
 
-        if (now >= scheduledTime) {
-          try {
-            console.log(`📤 Publicando: "${slot.content.substring(0, 50)}..."`);
-            await rwClient.v2.tweet(slot.content);
-            slot.status = 'published';
-            slot.publishedAt = now.toISOString();
-            updated = true;
-            console.log('✅ Publicación exitosa');
-          } catch (error) {
-            console.error('❌ Error al publicar:', error.message);
-            slot.status = 'failed';
-            slot.error = error.message;
-            updated = true;
-          }
-        }
-      }
+    if (error) {
+      console.error('Error al obtener slots:', error);
+      return;
     }
 
-    if (updated) {
-      await saveTimeline(timeline);
+    if (!slots || slots.length === 0) return;
+
+    console.log(`📤 Procesando ${slots.length} publicaciones pendientes...`);
+
+    for (const slot of slots) {
+      try {
+        const userId = slot.timelines.user_id;
+
+        // Obtener credenciales del usuario
+        const { data: credentials, error: credError } = await supabase
+          .from('twitter_credentials')
+          .select('*')
+          .eq('user_id', userId)
+          .single();
+
+        if (credError || !credentials) {
+          console.error(`❌ Usuario ${userId} no tiene credenciales de Twitter`);
+          await supabase
+            .from('slots')
+            .update({
+              status: 'failed',
+              error_message: 'No se encontraron credenciales de Twitter'
+            })
+            .eq('id', slot.id);
+          continue;
+        }
+
+        // Desencriptar credenciales
+        const decrypted = decryptTwitterCredentials(credentials);
+
+        // Crear cliente de Twitter para este usuario
+        const userTwitterClient = new TwitterApi({
+          appKey: decrypted.apiKey,
+          appSecret: decrypted.apiSecret,
+          accessToken: decrypted.accessToken,
+          accessSecret: decrypted.accessSecret
+        });
+
+        // Publicar tweet
+        console.log(`📤 Publicando para usuario ${userId}: "${slot.content.substring(0, 50)}..."`);
+        await userTwitterClient.readWrite.v2.tweet(slot.content);
+
+        // Marcar como publicado
+        await supabase
+          .from('slots')
+          .update({
+            status: 'published',
+            published_at: now.toISOString()
+          })
+          .eq('id', slot.id);
+
+        console.log(`✅ Publicación exitosa`);
+      } catch (error) {
+        console.error(`❌ Error al publicar slot ${slot.id}:`, error.message);
+
+        await supabase
+          .from('slots')
+          .update({
+            status: 'failed',
+            error_message: error.message
+          })
+          .eq('id', slot.id);
+      }
     }
   } catch (error) {
     console.error('Error en checkAndPublishScheduledPosts:', error);
   }
 }
 
-// Verificar cada minuto si hay posts para publicar
+// Verificar cada minuto
 cron.schedule('* * * * *', checkAndPublishScheduledPosts);
 
-// Iniciar servidor
+// ===== INICIAR SERVIDOR =====
 app.listen(PORT, () => {
-  console.log(`\n🚀 XSchedule-X corriendo en http://localhost:${PORT}`);
-  console.log('📅 Programador inteligente de tweets activo');
-  console.log('⚡ Sistema de slots con horarios óptimos\n');
+  console.log(`\n🚀 XSchedule-X (Multi-user) corriendo en http://localhost:${PORT}`);
+  console.log('📅 Sistema de publicación automática activo');
+  console.log('🔒 Auth con Supabase habilitado');
+  console.log('🗄️  Base de datos PostgreSQL persistente\n');
 });
