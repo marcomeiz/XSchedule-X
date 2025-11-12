@@ -3,6 +3,7 @@ import { TwitterApi } from 'twitter-api-v2';
 import cron from 'node-cron';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import { DateTime } from 'luxon';
 
 dotenv.config();
 
@@ -36,11 +37,12 @@ function calculateSlots(totalSlots, intervalHours, workStart, workEnd, timezone)
   const workMinutesPerDay = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
 
   // ===== DETERMINAR PUNTO DE INICIO (incluir hoy si es posible) =====
-  const now = new Date();
-  let startDate = new Date();
+  // Obtener "ahora" en la zona horaria del usuario
+  const now = DateTime.now().setZone(timezone);
+  let startDate = now;
 
-  const isWeekday = now.getDay() !== 0 && now.getDay() !== 6;
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const isWeekday = now.weekday >= 1 && now.weekday <= 5; // 1=Monday, 7=Sunday
+  const nowMinutes = now.hour * 60 + now.minute;
   const workStartMinutes = startHour * 60 + startMinute;
   const workEndMinutes = endHour * 60 + endMinute;
 
@@ -48,27 +50,24 @@ function calculateSlots(totalSlots, intervalHours, workStart, workEnd, timezone)
   if (isWeekday && nowMinutes < workEndMinutes) {
     if (nowMinutes >= workStartMinutes) {
       // Ya estamos en horario laboral, empezar en el siguiente minuto
-      startDate = new Date(now);
-      startDate.setSeconds(0, 0);
-      startDate.setMinutes(startDate.getMinutes() + 1);
+      startDate = now.plus({ minutes: 1 }).set({ second: 0, millisecond: 0 });
     } else {
       // Aún no empieza el horario laboral hoy, empezar en workStart
-      startDate.setHours(startHour, startMinute, 0, 0);
+      startDate = now.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
     }
   } else {
     // Empezar mañana en workStart
-    startDate.setDate(startDate.getDate() + 1);
-    startDate.setHours(startHour, startMinute, 0, 0);
+    startDate = now.plus({ days: 1 }).set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
 
     // Saltar fines de semana
-    while (startDate.getDay() === 0 || startDate.getDay() === 6) {
-      startDate.setDate(startDate.getDate() + 1);
+    while (startDate.weekday === 6 || startDate.weekday === 7) {
+      startDate = startDate.plus({ days: 1 });
     }
   }
 
   // ===== CALCULAR DISTRIBUCIÓN UNIFORME =====
   // Calcular cuántos minutos de trabajo disponibles tenemos desde startDate
-  const startDateMinutes = startDate.getHours() * 60 + startDate.getMinutes();
+  const startDateMinutes = startDate.hour * 60 + startDate.minute;
   let firstDayRemainingMinutes = workEndMinutes - startDateMinutes;
   if (firstDayRemainingMinutes < 0) firstDayRemainingMinutes = 0;
 
@@ -78,15 +77,14 @@ function calculateSlots(totalSlots, intervalHours, workStart, workEnd, timezone)
 
   // Calcular total de minutos de trabajo disponibles
   let totalAvailableMinutes = firstDayRemainingMinutes;
-  let tempDate = new Date(startDate);
-  tempDate.setDate(tempDate.getDate() + 1);
+  let tempDate = startDate.plus({ days: 1 });
 
   for (let i = 0; i < estimatedWorkdays; i++) {
-    while (tempDate.getDay() === 0 || tempDate.getDay() === 6) {
-      tempDate.setDate(tempDate.getDate() + 1);
+    while (tempDate.weekday === 6 || tempDate.weekday === 7) {
+      tempDate = tempDate.plus({ days: 1 });
     }
     totalAvailableMinutes += workMinutesPerDay;
-    tempDate.setDate(tempDate.getDate() + 1);
+    tempDate = tempDate.plus({ days: 1 });
   }
 
   // Espaciado uniforme: distribuir posts por TODO el tiempo disponible
@@ -100,46 +98,44 @@ function calculateSlots(totalSlots, intervalHours, workStart, workEnd, timezone)
     const minutesFromStart = i * spacingMinutes;
 
     // Convertir minutos totales a fecha real
-    let slotDate = new Date(startDate);
+    let slotDate = startDate;
     let minutesToAdd = minutesFromStart;
 
     // Calcular minutos disponibles en el primer día
-    const firstDayMinutes = workEndMinutes - (slotDate.getHours() * 60 + slotDate.getMinutes());
+    const firstDayMinutes = workEndMinutes - (slotDate.hour * 60 + slotDate.minute);
 
     if (minutesToAdd >= firstDayMinutes) {
       // Necesitamos pasar a días siguientes
       minutesToAdd -= firstDayMinutes;
-      slotDate.setDate(slotDate.getDate() + 1);
+      slotDate = slotDate.plus({ days: 1 });
 
       // Saltar fines de semana
-      while (slotDate.getDay() === 0 || slotDate.getDay() === 6) {
-        slotDate.setDate(slotDate.getDate() + 1);
+      while (slotDate.weekday === 6 || slotDate.weekday === 7) {
+        slotDate = slotDate.plus({ days: 1 });
       }
 
       // Avanzar días completos
       while (minutesToAdd >= workMinutesPerDay) {
         minutesToAdd -= workMinutesPerDay;
-        slotDate.setDate(slotDate.getDate() + 1);
+        slotDate = slotDate.plus({ days: 1 });
 
         // Saltar fines de semana
-        while (slotDate.getDay() === 0 || slotDate.getDay() === 6) {
-          slotDate.setDate(slotDate.getDate() + 1);
+        while (slotDate.weekday === 6 || slotDate.weekday === 7) {
+          slotDate = slotDate.plus({ days: 1 });
         }
       }
 
-      // Establecer al inicio del día laboral
-      slotDate.setHours(startHour, startMinute, 0, 0);
-
-      // Añadir minutos restantes
-      slotDate.setMinutes(slotDate.getMinutes() + minutesToAdd);
+      // Establecer al inicio del día laboral y añadir minutos restantes
+      slotDate = slotDate.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
+      slotDate = slotDate.plus({ minutes: minutesToAdd });
     } else {
       // Todo cabe en el primer día
-      slotDate.setMinutes(slotDate.getMinutes() + minutesToAdd);
+      slotDate = slotDate.plus({ minutes: minutesToAdd });
     }
 
     slots.push({
       slot_index: i,
-      scheduled_time: slotDate.toISOString(),
+      scheduled_time: slotDate.toISO(), // Luxon convierte a ISO con zona horaria
       status: 'empty',
       content: null
     });
@@ -650,13 +646,13 @@ app.get('/api/analytics', async (req, res) => {
 // ===== AUTO-PUBLISHER =====
 async function checkAndPublishScheduledPosts() {
   try {
-    const now = new Date();
+    const now = DateTime.utc(); // Usar UTC para comparaciones
 
     const { data: slots } = await supabase
       .from('slots')
       .select('*')
       .eq('status', 'filled')
-      .lte('scheduled_time', now.toISOString());
+      .lte('scheduled_time', now.toISO());
 
     if (!slots || slots.length === 0) return;
 
@@ -671,7 +667,7 @@ async function checkAndPublishScheduledPosts() {
           .from('slots')
           .update({
             status: 'published',
-            published_at: now.toISOString(),
+            published_at: now.toISO(),
             tweet_id: tweet.data.id
           })
           .eq('id', slot.id);
