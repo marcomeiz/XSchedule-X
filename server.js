@@ -731,30 +731,68 @@ async function checkAndPublishScheduledPosts() {
     console.log(`📤 Publicando ${slots.length} tweets...`);
 
     for (const slot of slots) {
+      let tweetId = null;
+      let twitterSuccess = false;
+
+      // Step 1: Try to publish to Twitter
       try {
         console.log(`📤 "${slot.content.substring(0, 50)}..."`);
         const tweet = await twitterClient.readWrite.v2.tweet(slot.content);
+        tweetId = tweet.data.id;
+        twitterSuccess = true;
+        console.log(`✅ Publicado en Twitter (ID: ${tweetId})`);
+      } catch (twitterError) {
+        // Twitter rejected - this is a legitimate failure
+        console.error(`❌ Error de Twitter:`, twitterError.message);
 
-        await supabase
-          .from('slots')
-          .update({
-            status: 'published',
-            published_at: now.toISO(),
-            tweet_id: tweet.data.id
-          })
-          .eq('id', slot.id);
+        try {
+          await supabase
+            .from('slots')
+            .update({
+              status: 'failed',
+              error_message: `Twitter error: ${twitterError.message}`
+            })
+            .eq('id', slot.id);
+        } catch (dbError) {
+          console.error(`⚠️  No se pudo actualizar estado fallido en DB:`, dbError.message);
+        }
 
-        console.log(`✅ Publicado (ID: ${tweet.data.id})`);
-      } catch (error) {
-        console.error(`❌ Error:`, error.message);
+        continue; // Skip to next slot
+      }
 
-        await supabase
-          .from('slots')
-          .update({
-            status: 'failed',
-            error_message: error.message
-          })
-          .eq('id', slot.id);
+      // Step 2: If we got here, Twitter succeeded - MUST mark as published
+      if (twitterSuccess && tweetId) {
+        try {
+          await supabase
+            .from('slots')
+            .update({
+              status: 'published',
+              published_at: now.toISO(),
+              tweet_id: tweetId
+            })
+            .eq('id', slot.id);
+
+          console.log(`✅ Estado actualizado en DB`);
+        } catch (dbError) {
+          // Critical: Tweet is live but DB update failed
+          console.error(`⚠️  CRÍTICO: Tweet publicado (${tweetId}) pero DB update falló:`, dbError.message);
+          console.error(`⚠️  El tweet SÍ está publicado en Twitter pero el sistema no lo refleja`);
+
+          // Try to mark as published anyway, even with partial info
+          try {
+            await supabase
+              .from('slots')
+              .update({
+                status: 'published',
+                published_at: now.toISO(),
+                tweet_id: tweetId,
+                error_message: `Published but DB error: ${dbError.message}`
+              })
+              .eq('id', slot.id);
+          } catch (retryError) {
+            console.error(`⚠️  Retry failed. Manual intervention needed for slot ${slot.id}, tweet ${tweetId}`);
+          }
+        }
       }
     }
   } catch (error) {
