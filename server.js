@@ -97,14 +97,14 @@ function calculateSlots(totalSlots, intervalHours, workStart, workEnd, timezone)
   for (let i = 0; i < totalSlots; i++) {
     const minutesFromStart = i * spacingMinutes;
 
-    // Convertir minutos totales a fecha real
+    // Convertir minutos totales de trabajo a fecha real
     let slotDate = startDate;
     let minutesToAdd = minutesFromStart;
 
-    // Calcular minutos disponibles en el primer día
+    // Calcular minutos disponibles en el primer día (puede ser parcial)
     const firstDayMinutes = workEndMinutes - (slotDate.hour * 60 + slotDate.minute);
 
-    if (minutesToAdd >= firstDayMinutes) {
+    if (minutesToAdd >= firstDayMinutes && firstDayMinutes > 0) {
       // Necesitamos pasar a días siguientes
       minutesToAdd -= firstDayMinutes;
       slotDate = slotDate.plus({ days: 1 });
@@ -129,13 +129,50 @@ function calculateSlots(totalSlots, intervalHours, workStart, workEnd, timezone)
       slotDate = slotDate.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
       slotDate = slotDate.plus({ minutes: minutesToAdd });
     } else {
-      // Todo cabe en el primer día
-      slotDate = slotDate.plus({ minutes: minutesToAdd });
+      // Todo cabe en el primer día (o el primer día ya pasó)
+      if (firstDayMinutes <= 0) {
+        // El primer día ya terminó, ir al siguiente día laboral
+        slotDate = slotDate.plus({ days: 1 });
+
+        // Saltar fines de semana
+        while (slotDate.weekday === 6 || slotDate.weekday === 7) {
+          slotDate = slotDate.plus({ days: 1 });
+        }
+
+        // Avanzar días completos
+        while (minutesToAdd >= workMinutesPerDay) {
+          minutesToAdd -= workMinutesPerDay;
+          slotDate = slotDate.plus({ days: 1 });
+
+          // Saltar fines de semana
+          while (slotDate.weekday === 6 || slotDate.weekday === 7) {
+            slotDate = slotDate.plus({ days: 1 });
+          }
+        }
+
+        // Establecer al inicio del día laboral y añadir minutos restantes
+        slotDate = slotDate.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
+        slotDate = slotDate.plus({ minutes: minutesToAdd });
+      } else {
+        // Todo cabe en el primer día
+        slotDate = slotDate.plus({ minutes: minutesToAdd });
+      }
+    }
+
+    // VALIDACIÓN FINAL: Asegurar que el slot esté dentro del horario laboral
+    const slotMinutes = slotDate.hour * 60 + slotDate.minute;
+    if (slotMinutes > workEndMinutes) {
+      // Se pasó del horario de fin, mover al siguiente día laboral
+      slotDate = slotDate.plus({ days: 1 });
+      while (slotDate.weekday === 6 || slotDate.weekday === 7) {
+        slotDate = slotDate.plus({ days: 1 });
+      }
+      slotDate = slotDate.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
     }
 
     slots.push({
       slot_index: i,
-      scheduled_time: slotDate.toISO(), // Luxon convierte a ISO con zona horaria
+      scheduled_time: slotDate.toISO(),
       status: 'empty',
       content: null
     });
