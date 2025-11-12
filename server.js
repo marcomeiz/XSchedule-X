@@ -29,7 +29,7 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ===== ALGORITMO DE DISTRIBUCIÓN AUTOMÁTICA =====
-function calculateSlots(postsPerDayTarget, intervalHours, workStart, workEnd, timezone) {
+function calculateSlots(postsPerDayTarget, intervalHours, monthsAhead, workStart, workEnd, timezone) {
   const slots = [];
   const [startHour, startMinute] = workStart.split(':').map(Number);
   const [endHour, endMinute] = workEnd.split(':').map(Number);
@@ -56,6 +56,10 @@ function calculateSlots(postsPerDayTarget, intervalHours, workStart, workEnd, ti
     postsPerDay = maxPostsPerDayByInterval;
     spacingMinutes = intervalMinutes;
   }
+
+  // ===== CALCULAR DÍAS A GENERAR =====
+  // Aproximado: 1 mes = 22 días laborables (5 días/semana × 4.4 semanas)
+  const workdaysToGenerate = Math.ceil(monthsAhead * 22);
 
   // ===== DETERMINAR PUNTO DE INICIO =====
   const now = DateTime.now().setZone(timezone);
@@ -115,12 +119,9 @@ function calculateSlots(postsPerDayTarget, intervalHours, workStart, workEnd, ti
   }
 
   // ===== GENERAR SLOTS PARA DÍAS COMPLETOS =====
-  // Total de slots a crear = postsPerDayTarget (ahora se interpreta como total deseado)
-  // Pero como el usuario dijo "hasta que me canse", vamos a generar para 30 días hacia adelante
-  const daysToSchedule = 30;
   let daysScheduled = 0;
 
-  while (daysScheduled < daysToSchedule) {
+  while (daysScheduled < workdaysToGenerate) {
     // Saltar fines de semana
     while (currentDate.weekday === 6 || currentDate.weekday === 7) {
       currentDate = currentDate.plus({ days: 1 });
@@ -176,7 +177,7 @@ app.get('/api/timeline', async (req, res) => {
 // Crear/actualizar timeline
 app.post('/api/timeline/create', async (req, res) => {
   try {
-    const { totalSlots, intervalHours, workStart, workEnd, timezone } = req.body;
+    const { totalSlots, intervalHours, monthsAhead, workStart, workEnd, timezone } = req.body;
 
     // PRESERVAR publicaciones del timeline anterior
     let existingPosts = [];
@@ -224,6 +225,7 @@ app.post('/api/timeline/create', async (req, res) => {
     const slotsData = calculateSlots(
       totalSlots,
       intervalHours,
+      monthsAhead,
       workStart,
       workEnd,
       timezone

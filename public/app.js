@@ -35,6 +35,7 @@ setupForm.addEventListener('submit', async (e) => {
 
   const totalSlots = parseInt(document.getElementById('totalSlots').value);
   const intervalHours = parseFloat(document.getElementById('intervalHours').value);
+  const monthsAhead = parseInt(document.getElementById('monthsAhead').value);
   const workStart = document.getElementById('workStart').value;
   const workEnd = document.getElementById('workEnd').value;
   const timezone = document.getElementById('timezone').value;
@@ -46,6 +47,7 @@ setupForm.addEventListener('submit', async (e) => {
       body: JSON.stringify({
         totalSlots,
         intervalHours,
+        monthsAhead,
         workStart,
         workEnd,
         timezone
