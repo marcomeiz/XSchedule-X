@@ -81,6 +81,55 @@ npm run dev
 
 5. ¡Listo! Tus publicaciones se publicarán automáticamente en los horarios programados
 
+## 🌐 Deploy en Render (Gratis)
+
+### Opción 1: Deploy automático con render.yaml (Recomendado)
+
+1. **Crea una cuenta en [Render](https://render.com)**
+
+2. **Haz clic en "New +" → "Web Service"**
+
+3. **Conecta tu repositorio de GitHub**
+
+4. **Render detectará automáticamente el `render.yaml`**
+
+5. **Configura las variables de entorno:**
+   - `TWITTER_API_KEY` → Tu API Key
+   - `TWITTER_API_SECRET` → Tu API Secret
+   - `TWITTER_ACCESS_TOKEN` → Tu Access Token
+   - `TWITTER_ACCESS_SECRET` → Tu Access Secret
+   - `TWITTER_BEARER_TOKEN` → Tu Bearer Token
+
+6. **Haz clic en "Create Web Service"**
+
+7. **¡Listo!** Tu app estará disponible en `https://tu-app.onrender.com`
+
+### Opción 2: Deploy manual
+
+Si prefieres configurar manualmente:
+
+1. En Render, selecciona tu repositorio
+2. Configura:
+   - **Name**: `xschedule-x`
+   - **Runtime**: Node
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+   - **Plan**: Free
+3. Agrega las variables de entorno (mismo paso 5 de arriba)
+4. Deploy automático
+
+### ⚠️ Importante sobre el plan gratuito de Render:
+
+- El servicio se "duerme" después de 15 minutos de inactividad
+- Cuando alguien visita la URL, se "despierta" (tarda ~30 segundos)
+- **Solución**: Usa un servicio como [UptimeRobot](https://uptimerobot.com/) (gratis) para hacer ping cada 5 minutos y mantenerlo despierto
+
+### 🚀 Alternativas gratuitas:
+
+- **Railway.app**: 500 horas gratis/mes, muy fácil de usar
+- **Fly.io**: 3 VMs gratis, excelente rendimiento
+- **Heroku**: Requiere tarjeta de crédito para verificación
+
 ## 📂 Estructura del proyecto
 
 ```
