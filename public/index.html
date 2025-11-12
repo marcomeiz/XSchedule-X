@@ -61,7 +61,10 @@
         <div id="timelineView" class="view timeline-view hidden">
             <header class="header">
                 <div class="header-left">
-                    <h2>Timeline</h2>
+                    <div class="nav-tabs">
+                        <button class="nav-tab active" onclick="switchTab('timeline')">Timeline</button>
+                        <button class="nav-tab" onclick="switchTab('analytics')">Analytics</button>
+                    </div>
                     <div class="progress-indicator">
                         <span id="progressText">0/12</span>
                     </div>
@@ -113,8 +116,109 @@
             </section>
 
             <!-- Slots Grid -->
-            <section class="slots-section">
+            <section id="timelineTab" class="slots-section">
                 <div id="slotsGrid" class="slots-grid"></div>
+            </section>
+
+            <!-- Analytics Dashboard -->
+            <section id="analyticsTab" class="analytics-section hidden">
+                <div id="analyticsLoading" class="analytics-loading">
+                    <div class="loading-spinner"></div>
+                    <p>Cargando analytics...</p>
+                </div>
+
+                <div id="analyticsContent" class="analytics-content hidden">
+                    <!-- Overview Cards -->
+                    <div class="analytics-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">Total Tweets</div>
+                            <div class="stat-value" id="statTotalTweets">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Engagement Rate</div>
+                            <div class="stat-value" id="statEngagementRate">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Impresiones</div>
+                            <div class="stat-value" id="statImpressions">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Engagements</div>
+                            <div class="stat-value" id="statEngagements">0</div>
+                        </div>
+                    </div>
+
+                    <!-- Best/Worst Performance -->
+                    <div class="performance-grid">
+                        <!-- Best Tweet -->
+                        <div class="performance-card best-card">
+                            <div class="performance-header">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                </svg>
+                                <h3>Mejor Tweet</h3>
+                            </div>
+                            <div class="tweet-content" id="bestTweetContent"></div>
+                            <div class="tweet-metrics" id="bestTweetMetrics"></div>
+                        </div>
+
+                        <!-- Worst Tweet -->
+                        <div class="performance-card worst-card">
+                            <div class="performance-header">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <line x1="15" y1="9" x2="9" y2="15"></line>
+                                    <line x1="9" y1="9" x2="15" y2="15"></line>
+                                </svg>
+                                <h3>Peor Tweet</h3>
+                            </div>
+                            <div class="tweet-content" id="worstTweetContent"></div>
+                            <div class="tweet-metrics" id="worstTweetMetrics"></div>
+                        </div>
+                    </div>
+
+                    <!-- Best/Worst Hours -->
+                    <div class="hours-grid">
+                        <div class="hour-card best-hour">
+                            <div class="hour-icon">⏰</div>
+                            <div class="hour-label">Mejor Horario</div>
+                            <div class="hour-time" id="bestHourTime"></div>
+                            <div class="hour-stat" id="bestHourStat"></div>
+                        </div>
+                        <div class="hour-card worst-hour">
+                            <div class="hour-icon">⏰</div>
+                            <div class="hour-label">Peor Horario</div>
+                            <div class="hour-time" id="worstHourTime"></div>
+                            <div class="hour-stat" id="worstHourStat"></div>
+                        </div>
+                    </div>
+
+                    <!-- Timeframes -->
+                    <div class="timeframes-card">
+                        <h3>Performance por Período</h3>
+                        <div class="timeframes-grid">
+                            <div class="timeframe" id="timeframeToday"></div>
+                            <div class="timeframe" id="timeframeWeek"></div>
+                            <div class="timeframe" id="timeframeMonth"></div>
+                        </div>
+                    </div>
+
+                    <!-- Top Words -->
+                    <div class="topwords-card">
+                        <h3>Palabras con Mejor Performance</h3>
+                        <div class="topwords-grid" id="topWordsGrid"></div>
+                    </div>
+                </div>
+
+                <div id="analyticsEmpty" class="analytics-empty hidden">
+                    <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <line x1="12" y1="20" x2="12" y2="10"></line>
+                        <line x1="18" y1="20" x2="18" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="16"></line>
+                    </svg>
+                    <h3>No hay datos aún</h3>
+                    <p>Publica algunos tweets para ver analytics</p>
+                </div>
             </section>
         </div>
     </div>

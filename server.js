@@ -320,6 +320,222 @@ app.post('/api/timeline/shuffle', async (req, res) => {
   }
 });
 
+// ===== ANALYTICS DASHBOARD =====
+app.get('/api/analytics', async (req, res) => {
+  try {
+    // Obtener todos los slots publicados con tweet_id
+    const { data: publishedSlots } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('status', 'published')
+      .not('tweet_id', 'is', null)
+      .order('published_at', { ascending: false });
+
+    if (!publishedSlots || publishedSlots.length === 0) {
+      return res.json({
+        success: true,
+        analytics: {
+          totalTweets: 0,
+          message: 'No hay tweets publicados aún'
+        }
+      });
+    }
+
+    // Obtener métricas de Twitter API para cada tweet
+    const tweetIds = publishedSlots.map(s => s.tweet_id);
+
+    // Twitter API v2: obtener tweets con métricas
+    const tweets = await twitterClient.readOnly.v2.tweets(tweetIds, {
+      'tweet.fields': ['public_metrics', 'created_at', 'author_id'],
+    });
+
+    // Mapear métricas con slots
+    const tweetsWithMetrics = publishedSlots.map(slot => {
+      const tweetData = tweets.data.find(t => t.id === slot.tweet_id);
+      return {
+        ...slot,
+        metrics: tweetData?.public_metrics || null,
+        created_at: tweetData?.created_at || slot.published_at
+      };
+    }).filter(t => t.metrics !== null);
+
+    // ===== ANÁLISIS AVANZADO =====
+
+    // Calcular engagement rate para cada tweet
+    const tweetsWithEngagement = tweetsWithMetrics.map(tweet => {
+      const metrics = tweet.metrics;
+      const engagements = metrics.retweet_count + metrics.reply_count + metrics.like_count;
+      const engagementRate = metrics.impression_count > 0
+        ? (engagements / metrics.impression_count) * 100
+        : 0;
+
+      return {
+        ...tweet,
+        engagementRate,
+        totalEngagements: engagements
+      };
+    });
+
+    // Ordenar por engagement rate
+    const sortedByEngagement = [...tweetsWithEngagement].sort((a, b) => b.engagementRate - a.engagementRate);
+
+    // Top & Worst tweets
+    const bestTweet = sortedByEngagement[0];
+    const worstTweet = sortedByEngagement[sortedByEngagement.length - 1];
+
+    // Análisis por horario
+    const hourlyPerformance = {};
+    tweetsWithEngagement.forEach(tweet => {
+      const hour = new Date(tweet.scheduled_time).getHours();
+      if (!hourlyPerformance[hour]) {
+        hourlyPerformance[hour] = {
+          count: 0,
+          totalEngagement: 0,
+          totalImpressions: 0
+        };
+      }
+      hourlyPerformance[hour].count++;
+      hourlyPerformance[hour].totalEngagement += tweet.totalEngagements;
+      hourlyPerformance[hour].totalImpressions += tweet.metrics.impression_count;
+    });
+
+    // Calcular engagement rate promedio por hora
+    const hourlyStats = Object.entries(hourlyPerformance).map(([hour, stats]) => ({
+      hour: parseInt(hour),
+      avgEngagementRate: (stats.totalEngagement / stats.totalImpressions) * 100,
+      count: stats.count
+    })).sort((a, b) => b.avgEngagementRate - a.avgEngagementRate);
+
+    const bestHour = hourlyStats[0];
+    const worstHour = hourlyStats[hourlyStats.length - 1];
+
+    // Filtros temporales
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const todayTweets = tweetsWithEngagement.filter(t => new Date(t.published_at) >= today);
+    const weekTweets = tweetsWithEngagement.filter(t => new Date(t.published_at) >= weekAgo);
+    const monthTweets = tweetsWithEngagement.filter(t => new Date(t.published_at) >= monthAgo);
+
+    // Calcular promedios
+    const calculateAvg = (tweets) => {
+      if (tweets.length === 0) return null;
+      const total = tweets.reduce((acc, t) => ({
+        engagements: acc.engagements + t.totalEngagements,
+        impressions: acc.impressions + t.metrics.impression_count,
+        likes: acc.likes + t.metrics.like_count,
+        retweets: acc.retweets + t.metrics.retweet_count,
+        replies: acc.replies + t.metrics.reply_count
+      }), { engagements: 0, impressions: 0, likes: 0, retweets: 0, replies: 0 });
+
+      return {
+        count: tweets.length,
+        avgEngagementRate: (total.engagements / total.impressions) * 100,
+        totalImpressions: total.impressions,
+        totalLikes: total.likes,
+        totalRetweets: total.retweets,
+        totalReplies: total.replies,
+        totalEngagements: total.engagements
+      };
+    };
+
+    const todayStats = calculateAvg(todayTweets);
+    const weekStats = calculateAvg(weekTweets);
+    const monthStats = calculateAvg(monthTweets);
+
+    // Análisis de contenido (palabras más efectivas)
+    const wordPerformance = {};
+    tweetsWithEngagement.forEach(tweet => {
+      const words = tweet.content.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+      words.forEach(word => {
+        if (!wordPerformance[word]) {
+          wordPerformance[word] = {
+            count: 0,
+            totalEngagement: 0
+          };
+        }
+        wordPerformance[word].count++;
+        wordPerformance[word].totalEngagement += tweet.engagementRate;
+      });
+    });
+
+    const topWords = Object.entries(wordPerformance)
+      .map(([word, stats]) => ({
+        word,
+        avgEngagement: stats.totalEngagement / stats.count,
+        count: stats.count
+      }))
+      .filter(w => w.count >= 2)
+      .sort((a, b) => b.avgEngagement - a.avgEngagement)
+      .slice(0, 10);
+
+    // Respuesta final
+    res.json({
+      success: true,
+      analytics: {
+        overview: {
+          totalTweets: tweetsWithEngagement.length,
+          avgEngagementRate: weekStats?.avgEngagementRate || 0,
+          totalImpressions: monthStats?.totalImpressions || 0,
+          totalEngagements: monthStats?.totalEngagements || 0
+        },
+        bestPerformers: {
+          tweet: {
+            content: bestTweet.content.substring(0, 100),
+            engagementRate: bestTweet.engagementRate.toFixed(2),
+            likes: bestTweet.metrics.like_count,
+            retweets: bestTweet.metrics.retweet_count,
+            impressions: bestTweet.metrics.impression_count,
+            publishedAt: bestTweet.published_at
+          },
+          hour: {
+            hour: bestHour.hour,
+            avgEngagementRate: bestHour.avgEngagementRate.toFixed(2),
+            count: bestHour.count
+          }
+        },
+        worstPerformers: {
+          tweet: {
+            content: worstTweet.content.substring(0, 100),
+            engagementRate: worstTweet.engagementRate.toFixed(2),
+            likes: worstTweet.metrics.like_count,
+            retweets: worstTweet.metrics.retweet_count,
+            impressions: worstTweet.metrics.impression_count,
+            publishedAt: worstTweet.published_at
+          },
+          hour: {
+            hour: worstHour.hour,
+            avgEngagementRate: worstHour.avgEngagementRate.toFixed(2),
+            count: worstHour.count
+          }
+        },
+        timeframes: {
+          today: todayStats,
+          week: weekStats,
+          month: monthStats
+        },
+        hourlyPerformance: hourlyStats,
+        topWords,
+        recentTweets: tweetsWithEngagement.slice(0, 10).map(t => ({
+          content: t.content.substring(0, 100),
+          engagementRate: t.engagementRate.toFixed(2),
+          metrics: t.metrics,
+          publishedAt: t.published_at
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en analytics:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // ===== AUTO-PUBLISHER =====
 async function checkAndPublishScheduledPosts() {
   try {
@@ -338,17 +554,18 @@ async function checkAndPublishScheduledPosts() {
     for (const slot of slots) {
       try {
         console.log(`📤 "${slot.content.substring(0, 50)}..."`);
-        await twitterClient.readWrite.v2.tweet(slot.content);
+        const tweet = await twitterClient.readWrite.v2.tweet(slot.content);
 
         await supabase
           .from('slots')
           .update({
             status: 'published',
-            published_at: now.toISOString()
+            published_at: now.toISOString(),
+            tweet_id: tweet.data.id
           })
           .eq('id', slot.id);
 
-        console.log(`✅ Publicado`);
+        console.log(`✅ Publicado (ID: ${tweet.data.id})`);
       } catch (error) {
         console.error(`❌ Error:`, error.message);
 
