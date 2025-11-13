@@ -758,29 +758,68 @@ async function checkAndPublishScheduledPosts() {
           throw new Error('Twitter no devolvió un ID de tweet válido');
         }
       } catch (twitterError) {
-        // Twitter rejected - this is a legitimate failure
-        console.error(`\n❌ ERROR EN SLOT #${slot.id}`);
-        console.error(`❌ Error completo:`, twitterError);
-        console.error(`❌ Error mensaje:`, twitterError.message);
-        console.error(`❌ Error code:`, twitterError.code);
-        console.error(`❌ Error data:`, JSON.stringify(twitterError.data, null, 2));
-        console.error(`❌ Es duplicate content?:`, twitterError.message?.includes('duplicate'));
+        console.error(`\n⚠️  ERROR EN SLOT #${slot.id}`);
+        console.error(`Error code:`, twitterError.code);
+        console.error(`Error mensaje:`, twitterError.message);
 
-        // Si el error tiene un tweet ID en algún lugar, aún podría haberse publicado
-        let possibleTweetId = null;
-        if (twitterError.data && twitterError.data.id) {
-          possibleTweetId = twitterError.data.id;
-          console.log(`⚠️  ADVERTENCIA: Error contiene tweet ID ${possibleTweetId} - el tweet podría estar publicado`);
+        // CRITICAL: Errores 403/429 pueden significar que el tweet SÍ se publicó
+        // Verificar si el tweet realmente está en Twitter antes de marcarlo como fallido
+        const errorCode = twitterError.code || twitterError.statusCode;
+        if (errorCode === 403 || errorCode === 429 || twitterError.message?.includes('403') || twitterError.message?.includes('429')) {
+          console.log(`\n🔍 Error 403/429 detectado. Verificando si el tweet se publicó de todos modos...`);
+
+          try {
+            // Esperar 3 segundos para dar tiempo a que Twitter procese
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            // Buscar el tweet en el timeline del usuario
+            const userTweets = await twitterClient.readOnly.v2.userTimeline('101048650', {
+              max_results: 10,
+              'tweet.fields': ['created_at', 'text']
+            });
+
+            // Buscar si alguno de los tweets recientes coincide con el contenido
+            const matchingTweet = userTweets.data?.data?.find(t =>
+              t.text === slot.content || t.text.includes(slot.content.substring(0, 100))
+            );
+
+            if (matchingTweet) {
+              // ✅ EL TWEET SÍ SE PUBLICÓ! Marcarlo como exitoso
+              tweetId = matchingTweet.id;
+              twitterSuccess = true;
+              console.log(`✅ RECUPERADO: Tweet SÍ se publicó a pesar del error (ID: ${tweetId})`);
+
+              // Actualizar en DB como publicado
+              await supabase
+                .from('slots')
+                .update({
+                  status: 'published',
+                  published_at: now.toISO(),
+                  tweet_id: tweetId,
+                  error_message: `Published despite ${errorCode} error (recovered)`
+                })
+                .eq('id', slot.id);
+
+              console.log(`✅ Estado actualizado en DB como publicado`);
+              continue; // Siguiente slot
+            } else {
+              console.log(`❌ Tweet NO encontrado en timeline. Error legítimo.`);
+            }
+          } catch (verifyError) {
+            console.error(`⚠️  No se pudo verificar si el tweet se publicó:`, verifyError.message);
+          }
         }
 
+        // Si llegamos aquí, el error es legítimo - marcar como fallido
         try {
           await supabase
             .from('slots')
             .update({
               status: 'failed',
-              error_message: `Twitter error: ${twitterError.message}${possibleTweetId ? ` (possible ID: ${possibleTweetId})` : ''}`
+              error_message: `Twitter error ${errorCode || 'unknown'}: ${twitterError.message}`
             })
             .eq('id', slot.id);
+          console.log(`❌ Slot marcado como fallido`);
         } catch (dbError) {
           console.error(`⚠️  No se pudo actualizar estado fallido en DB:`, dbError.message);
         }
