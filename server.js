@@ -514,7 +514,7 @@ app.post('/api/timeline/shuffle', async (req, res) => {
 app.get('/api/published', async (req, res) => {
   try {
     // Obtener todos los slots publicados
-    const { data: publishedSlots } = await supabase
+    const { data: publishedSlots, error: queryError } = await supabase
       .from('slots')
       .select('*')
       .eq('status', 'published')
@@ -522,7 +522,20 @@ app.get('/api/published', async (req, res) => {
       .order('published_at', { ascending: false })
       .limit(50); // Últimos 50 publicados
 
+    console.log(`📊 Query published slots: ${publishedSlots?.length || 0} encontrados`);
+    if (queryError) {
+      console.error('Error en query de published:', queryError);
+    }
+
     if (!publishedSlots || publishedSlots.length === 0) {
+      // Debug: contar cuántos hay en total
+      const { count } = await supabase
+        .from('slots')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'published');
+
+      console.log(`📊 Total slots con status=published: ${count}`);
+
       return res.json({
         success: true,
         published: []
@@ -588,6 +601,45 @@ app.get('/api/published', async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+// ===== DEBUG ENDPOINT (temporal) =====
+app.get('/api/debug/slots', async (req, res) => {
+  try {
+    const { data: allSlots } = await supabase
+      .from('slots')
+      .select('id, status, content, tweet_id, published_at, scheduled_time')
+      .order('scheduled_time', { ascending: false })
+      .limit(20);
+
+    const statusCount = {
+      empty: 0,
+      filled: 0,
+      published: 0,
+      failed: 0
+    };
+
+    allSlots?.forEach(s => {
+      statusCount[s.status] = (statusCount[s.status] || 0) + 1;
+    });
+
+    res.json({
+      success: true,
+      totalSlots: allSlots?.length || 0,
+      statusCount,
+      recent20: allSlots?.map(s => ({
+        id: s.id,
+        status: s.status,
+        content: s.content?.substring(0, 50),
+        tweet_id: s.tweet_id,
+        published_at: s.published_at,
+        scheduled_time: s.scheduled_time
+      }))
+    });
+  } catch (error) {
+    console.error('Error en debug:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
