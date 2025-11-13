@@ -1102,3 +1102,111 @@ body::before {
     font-size: 12px;
     font-weight: 600;
 }
+
+/* ===== PUBLISHED TWEETS SECTION ===== */
+.published-section {
+    padding: var(--space-8) var(--space-6);
+}
+
+.published-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}
+
+.published-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: var(--space-4);
+}
+
+@media (max-width: 768px) {
+    .published-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.published-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--blur-lg)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(180%);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    box-shadow:
+        0 2px 20px rgba(0, 0, 0, 0.06),
+        inset 0 1px 0 var(--glass-highlight);
+    transition: all var(--duration-normal) var(--ease-spring);
+}
+
+.published-card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+        0 4px 30px rgba(0, 0, 0, 0.10),
+        inset 0 1px 0 var(--glass-highlight);
+}
+
+.published-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-3);
+}
+
+.published-date {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--label-secondary);
+}
+
+.tweet-link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--system-blue);
+    text-decoration: none;
+    transition: color var(--duration-fast) var(--ease-out);
+}
+
+.tweet-link:hover {
+    color: var(--system-blue-hover);
+}
+
+.published-content {
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--label-primary);
+    margin-bottom: var(--space-4);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.published-metrics {
+    display: flex;
+    gap: var(--space-5);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--separator);
+}
+
+.published-metrics .metric {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--label-secondary);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.published-metrics .metric svg {
+    opacity: 0.7;
+}
+
+.published-note {
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--separator);
+    font-size: 13px;
+    color: var(--label-tertiary);
+    text-align: center;
+}

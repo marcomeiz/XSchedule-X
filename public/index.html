@@ -82,6 +82,7 @@
                     </div>
                     <div class="nav-tabs">
                         <button class="nav-tab active" onclick="switchTab('timeline')">Timeline</button>
+                        <button class="nav-tab" onclick="switchTab('published')">Publicados</button>
                         <button class="nav-tab" onclick="switchTab('analytics')">Analytics</button>
                     </div>
                     <div class="progress-indicator">
@@ -137,6 +138,26 @@
             <!-- Slots Grid -->
             <section id="timelineTab" class="slots-section">
                 <div id="slotsGrid" class="slots-grid"></div>
+            </section>
+
+            <!-- Published Tweets -->
+            <section id="publishedTab" class="published-section hidden">
+                <div id="publishedLoading" class="analytics-loading">
+                    <div class="loading-spinner"></div>
+                    <p>Cargando tweets publicados...</p>
+                </div>
+
+                <div id="publishedContent" class="published-content hidden">
+                    <div id="publishedGrid" class="published-grid"></div>
+                </div>
+
+                <div id="publishedEmpty" class="analytics-empty hidden">
+                    <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                    </svg>
+                    <h3>No hay tweets publicados aún</h3>
+                    <p>Los tweets publicados aparecerán aquí con sus estadísticas</p>
+                </div>
             </section>
 
             <!-- Analytics Dashboard -->
