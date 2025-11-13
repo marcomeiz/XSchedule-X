@@ -4,7 +4,7 @@
 #
 
 app = "xschedule-x"
-primary_region = "mia"  # Miami (cambia a tu región preferida: gru=Sao Paulo, iad=Virginia, lhr=Londres)
+primary_region = "iad"  # Virginia (cambia a tu región preferida: gru=Sao Paulo, lhr=Londres, dfw=Dallas)
 
 [build]
 
