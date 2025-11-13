@@ -1211,3 +1211,283 @@ body::before {
     color: var(--label-tertiary);
     text-align: center;
 }
+
+/* ========================================
+   AI Generation Buttons & Modal
+======================================== */
+
+.ai-buttons {
+    display: flex;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+    justify-content: center;
+}
+
+.btn-ai {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-5);
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-out);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+
+.btn-ai svg {
+    flex-shrink: 0;
+}
+
+.btn-ai-ops {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(99, 102, 241, 0.15));
+    color: rgb(59, 130, 246);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.btn-ai-ops:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(99, 102, 241, 0.25));
+    border-color: rgba(59, 130, 246, 0.5);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.btn-ai-chaos {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(249, 115, 22, 0.15));
+    color: rgb(239, 68, 68);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.btn-ai-chaos:hover {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(249, 115, 22, 0.25));
+    border-color: rgba(239, 68, 68, 0.5);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn var(--duration-normal) var(--ease-out);
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    position: relative;
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    background: var(--bg-primary);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    animation: slideUp var(--duration-normal) var(--ease-spring);
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-5);
+    border-bottom: 1px solid var(--separator);
+    background: var(--bg-secondary);
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--label-primary);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    padding: var(--space-2);
+    cursor: pointer;
+    color: var(--label-secondary);
+    transition: all var(--duration-fast) var(--ease-out);
+    border-radius: var(--radius-sm);
+}
+
+.modal-close:hover {
+    background: var(--hover-overlay);
+    color: var(--label-primary);
+}
+
+.modal-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-10);
+    gap: var(--space-4);
+}
+
+.modal-loading p {
+    color: var(--label-secondary);
+    font-size: 15px;
+}
+
+.modal-body {
+    padding: var(--space-5);
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.modal-body.hidden {
+    display: none;
+}
+
+.modal-topic {
+    padding: var(--space-4);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-5);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--label-secondary);
+}
+
+.modal-topic strong {
+    color: var(--label-primary);
+}
+
+.modal-topic span {
+    display: block;
+    margin-top: var(--space-2);
+    color: var(--label-primary);
+    font-weight: 500;
+}
+
+.ai-variants {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.ai-variant-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--separator);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-out);
+}
+
+.ai-variant-card:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--tint);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(29, 155, 240, 0.1);
+}
+
+.ai-variant-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-3);
+}
+
+.ai-variant-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--label-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ai-variant-score {
+    font-size: 12px;
+    color: var(--label-tertiary);
+    font-weight: 500;
+}
+
+.ai-variant-text {
+    color: var(--label-primary);
+    line-height: 1.5;
+    font-size: 15px;
+    word-wrap: break-word;
+}
+
+.ai-variant-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--separator);
+}
+
+.btn-select-variant {
+    padding: var(--space-2) var(--space-4);
+    background: var(--tint);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-out);
+}
+
+.btn-select-variant:hover {
+    background: var(--tint-hover);
+    transform: scale(1.05);
+}
+
+.modal-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-10);
+    gap: var(--space-4);
+    text-align: center;
+}
+
+.modal-error.hidden {
+    display: none;
+}
+
+.modal-error svg {
+    color: rgb(239, 68, 68);
+}
+
+.modal-error p {
+    color: var(--label-primary);
+    font-size: 15px;
+    max-width: 400px;
+}

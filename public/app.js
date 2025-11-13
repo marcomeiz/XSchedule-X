@@ -544,5 +544,103 @@ function formatDate(date) {
   });
 }
 
+// ===== AI GENERATION =====
+
+// Configure API endpoint - change this after deploying marco-voice-engine-api
+const AI_API_URL = 'https://marco-voice-engine-api.fly.dev';
+
+async function generateAI(mode) {
+  const modal = document.getElementById('aiModal');
+  const loading = document.getElementById('aiModalLoading');
+  const body = document.getElementById('aiModalBody');
+  const error = document.getElementById('aiModalError');
+  const title = document.getElementById('aiModalTitle');
+
+  // Show modal with loading state
+  modal.classList.remove('hidden');
+  loading.classList.remove('hidden');
+  body.classList.add('hidden');
+  error.classList.add('hidden');
+
+  // Update title based on mode
+  title.textContent = mode === 'ops' ? '✨ Variantes OPS' : '🔥 Variantes CHAOS';
+
+  try {
+    const response = await fetch(`${AI_API_URL}/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ mode }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || 'Error al generar variantes');
+    }
+
+    const data = await response.json();
+
+    // Hide loading, show body
+    loading.classList.add('hidden');
+    body.classList.remove('hidden');
+
+    // Display topic
+    document.getElementById('aiTopicText').textContent = data.topic;
+
+    // Display variants
+    const container = document.getElementById('aiVariantsContainer');
+    container.innerHTML = data.variants.map((variant, index) => `
+      <div class="ai-variant-card">
+        <div class="ai-variant-header">
+          <div class="ai-variant-label">Variante ${index + 1}</div>
+          <div class="ai-variant-score">Score: ${(variant.score * 100).toFixed(1)}%</div>
+        </div>
+        <div class="ai-variant-text">${escapeHtml(variant.text)}</div>
+        <div class="ai-variant-footer">
+          <button class="btn-select-variant" onclick="selectVariant('${escapeHtml(variant.text).replace(/'/g, "\\'")}')">
+            Programar este
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+  } catch (err) {
+    console.error('Error generating AI variants:', err);
+    loading.classList.add('hidden');
+    error.classList.remove('hidden');
+    document.getElementById('aiErrorText').textContent =
+      err.message || 'No se pudo generar las variantes. Por favor intenta de nuevo.';
+  }
+}
+
+function selectVariant(text) {
+  // Decode HTML entities
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  const decodedText = textarea.value;
+
+  // Fill the textarea with the selected variant
+  document.getElementById('postContent').value = decodedText;
+  updateCharCount();
+
+  // Close modal
+  closeAIModal();
+
+  // Scroll to textarea
+  document.getElementById('postContent').focus();
+}
+
+function closeAIModal() {
+  const modal = document.getElementById('aiModal');
+  modal.classList.add('hidden');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 // ===== INIT =====
 init();

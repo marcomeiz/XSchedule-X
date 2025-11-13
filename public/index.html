@@ -112,6 +112,24 @@
 
             <!-- Write Section -->
             <section class="write-section">
+                <div class="ai-buttons">
+                    <button class="btn-ai btn-ai-ops" onclick="generateAI('ops')">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                            <path d="M2 17l10 5 10-5"></path>
+                            <path d="M2 12l10 5 10-5"></path>
+                        </svg>
+                        ✨ Generar OPS
+                    </button>
+                    <button class="btn-ai btn-ai-chaos" onclick="generateAI('chaos')">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                        </svg>
+                        🔥 Generar CHAOS
+                    </button>
+                </div>
                 <form id="postForm" class="post-form">
                     <div class="textarea-wrapper">
                         <textarea
@@ -260,6 +278,44 @@
                     <p>Publica algunos tweets para ver analytics</p>
                 </div>
             </section>
+        </div>
+
+        <!-- AI Generation Modal -->
+        <div id="aiModal" class="modal hidden">
+            <div class="modal-overlay" onclick="closeAIModal()"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="aiModalTitle">✨ Variantes Generadas</h2>
+                    <button class="modal-close" onclick="closeAIModal()">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+
+                <div id="aiModalLoading" class="modal-loading">
+                    <div class="loading-spinner"></div>
+                    <p>Generando variantes con IA...</p>
+                </div>
+
+                <div id="aiModalBody" class="modal-body hidden">
+                    <div class="modal-topic">
+                        <strong>Topic:</strong> <span id="aiTopicText"></span>
+                    </div>
+                    <div id="aiVariantsContainer" class="ai-variants"></div>
+                </div>
+
+                <div id="aiModalError" class="modal-error hidden">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <p id="aiErrorText"></p>
+                    <button class="btn-secondary" onclick="closeAIModal()">Cerrar</button>
+                </div>
+            </div>
         </div>
     </div>
 
