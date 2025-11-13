@@ -407,11 +407,442 @@ Ejecuta operaciones largas (generación, embeddings) en threads separados para n
 
 ---
 
+## 🔄 Flujo Completo End-to-End
+
+### Paso 1: Verificar que Precompute Terminó
+
+```bash
+fly logs -a marco-voice-engine | grep PRECOMPUTE
+```
+
+**Buscar**:
+```
+[PRECOMPUTE] Inserting 484 records into Supabase...
+[PRECOMPUTE] Done!
+```
+
+**Verificar en Supabase**:
+1. Ve a https://supabase.com/dashboard
+2. Tabla `goldset_embeddings`
+3. Deberías ver **484 filas** con embeddings
+
+---
+
+### Paso 2: Configurar Endpoint en XSchedule-X
+
+El frontend YA está configurado para apuntar a:
+```javascript
+const AI_API_URL = 'https://marco-voice-engine-api.fly.dev';
+```
+
+**Archivo**: `public/app.js` línea 550
+
+Si cambiaste el nombre de la app en Fly.io, actualiza esa línea.
+
+---
+
+### Paso 3: Deploy Final de XSchedule-X
+
+Si hiciste cambios adicionales:
+
+```bash
+cd ~/Desktop/MMEI/Proyectos\ Personales/XSchedule-X
+fly deploy
+```
+
+---
+
+### Paso 4: Workflow de Usuario Final
+
+#### Escenario: Usuario quiere generar tweet con IA
+
+1. **Usuario abre XSchedule-X**
+   - URL: https://xschedule-x.fly.dev
+   - Ve su timeline con slots programados
+
+2. **Click en "✨ Generar OPS"** (o "🔥 Generar CHAOS")
+   - Modal aparece con estado "Loading..."
+   - Frontend llama: `POST https://marco-voice-engine-api.fly.dev/generate`
+
+3. **Backend procesa** (10-20 segundos):
+   ```
+   a) Selecciona topic aleatorio de topics.json (53 opciones)
+   b) Lee embeddings cacheados de Supabase (484 ejemplos)
+   c) Llama a OpenRouter/Claude para generar 2 variantes
+   d) Judge filtra por similitud/calidad
+   e) Devuelve JSON con 2 variantes + scores
+   ```
+
+4. **Modal muestra resultados**:
+   ```
+   Topic: "Context switching steals weeks a year..."
+
+   [Variante 1] Score: 85%
+   "Context switching isn't just distraction—it's compound interest
+   in reverse. Every switch costs you 23 minutes of flow state."
+   [Programar este]
+
+   [Variante 2] Score: 82%
+   "You don't lose time to context switching. You lose momentum.
+   And momentum is what separates shipping from spinning."
+   [Programar este]
+   ```
+
+5. **Usuario selecciona variante**
+   - Click en "Programar este"
+   - Texto se carga en textarea del formulario
+   - Modal se cierra
+
+6. **Usuario confirma**
+   - Click en "Agregar"
+   - Sistema busca siguiente slot vacío en el futuro
+   - Programa el tweet
+   - Tweet aparece en timeline
+
+7. **Sistema publica automáticamente**
+   - Cron job verifica slots cada hora
+   - Publica tweets programados
+   - Actualiza estado a "published"
+   - Fetch métricas de Twitter API
+
+8. **Usuario ve resultados**
+   - Tab "Publicados" muestra el tweet
+   - Métricas en tiempo real: likes, RTs, replies, impressions
+
+---
+
+## 🔧 Configuración Post-Deployment
+
+### 1. Variables de Entorno
+
+**Verificar que XSchedule-X tenga**:
+```bash
+cd ~/Desktop/MMEI/Proyectos\ Personales/XSchedule-X
+fly secrets list
+```
+
+Debe mostrar:
+- SUPABASE_URL
+- SUPABASE_ANON_KEY
+- TWITTER_* (todas las credenciales)
+
+**Verificar que Marco Voice Engine tenga**:
+```bash
+cd ~/Desktop/MMEI/Proyectos\ Personales/00001bot/marco-voice-engine
+fly secrets list
+```
+
+Debe mostrar:
+- OPENROUTER_API_KEY
+- SUPABASE_URL
+- SUPABASE_ANON_KEY
+- EMBEDDING_MODEL_NAME
+- GENERATION_MODEL_PRIMARY
+
+---
+
+### 2. CORS (Ya configurado)
+
+Marco Voice Engine API tiene CORS habilitado:
+```python
+allow_origins=["*"]  # Acepta requests desde cualquier origen
+```
+
+En producción, cambiar a:
+```python
+allow_origins=["https://xschedule-x.fly.dev"]
+```
+
+---
+
+### 3. Rate Limiting (Opcional - Futuro)
+
+Para proteger créditos de OpenRouter, considera agregar:
+
+```python
+# En api.py
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
+
+@app.post("/generate")
+@limiter.limit("10/hour")  # 10 requests por hora
+async def generate(...):
+    ...
+```
+
+---
+
+## 🧪 Testing Completo
+
+### Test 1: Health Checks
+
+```bash
+# Marco Voice Engine
+curl https://marco-voice-engine-api.fly.dev/health
+# Esperado: {"status":"healthy"}
+
+# XSchedule-X
+curl https://xschedule-x.fly.dev/api/health
+# Esperado: {"status":"ok"}
+```
+
+---
+
+### Test 2: Generación desde Terminal
+
+```bash
+curl -X POST https://marco-voice-engine-api.fly.dev/generate \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "ops"}'
+```
+
+**Esperado** (10-20 seg):
+```json
+{
+  "topic": "Context switching steals weeks a year...",
+  "variants": [
+    {
+      "text": "Context switching isn't distraction...",
+      "score": 0.85
+    },
+    {
+      "text": "You don't lose time to context switching...",
+      "score": 0.82
+    }
+  ]
+}
+```
+
+---
+
+### Test 3: Generación desde Browser (Critical)
+
+1. Abrir: https://xschedule-x.fly.dev
+2. Abrir DevTools (F12) → Network tab
+3. Click "✨ Generar OPS"
+4. **Verificar en Network**:
+   - Request a `/generate` aparece
+   - Status: 200 OK
+   - Response time: 10-20 seg
+   - Response body: JSON con topic + variantes
+
+5. **Verificar en UI**:
+   - Modal muestra "Loading..." durante request
+   - Después muestra 2 variantes con scores
+   - Topic visible arriba
+   - Botones "Programar este" funcionan
+
+6. **Click "Programar este"**:
+   - Modal se cierra
+   - Texto aparece en textarea
+   - Contador de caracteres se actualiza
+
+7. **Click "Agregar"**:
+   - Textarea se limpia
+   - Slot en timeline cambia de "vacío" a "filled"
+   - Muestra preview del contenido
+
+---
+
+### Test 4: Publicación Automática
+
+**Esperar a la siguiente hora en punto** (o forzar manualmente):
+
+```bash
+# En servidor de XSchedule-X
+fly ssh console -a xschedule-x
+# Dentro:
+node -e "require('./server.js')"  # No hagas esto, solo espera el cron
+```
+
+**Verificar**:
+1. Slot cambia a estado "published"
+2. Aparece en tab "Publicados"
+3. Tweet visible en Twitter: https://twitter.com/tu_handle
+4. Métricas se actualizan (puede tardar 1-2 min)
+
+---
+
+## 🆘 Troubleshooting
+
+### Problema: Modal se queda en "Loading..." infinito
+
+**Causa**: Error en llamada al API
+
+**Solución**:
+1. Abrir DevTools → Console
+2. Ver error específico
+3. Verificar Network tab → /generate request
+4. Si status 500: ver logs de marco-voice-engine
+
+```bash
+fly logs -a marco-voice-engine
+```
+
+---
+
+### Problema: "No variants passed quality filters"
+
+**Causa**: Judge rechazó todas las variantes (muy diferentes del goldset)
+
+**Soluciones**:
+1. **Temporal**: Retry (click botón de nuevo)
+2. **Permanente**: Agregar más ejemplos a dataset.json
+3. **Ajustar Judge**: Relajar threshold de similitud
+
+**Archivo**: `src/marco_voice_engine/judge.py`
+```python
+# Línea ~50
+if similarity < 0.7:  # Cambiar a 0.6 si es muy estricto
+    rejected.append(...)
+```
+
+---
+
+### Problema: Tweets generados no se parecen al estilo
+
+**Causa**: dataset.json tiene ejemplos inconsistentes o pocos
+
+**Solución**:
+1. Revisar dataset.json - todos los tweets deben ser del MISMO autor/estilo
+2. Agregar más ejemplos (mínimo 100, ideal 300+)
+3. Re-ejecutar precompute:
+
+```bash
+# Borrar embeddings viejos
+# En Supabase SQL Editor:
+DELETE FROM goldset_embeddings;
+
+# Re-calcular
+curl -X POST https://marco-voice-engine-api.fly.dev/admin/precompute
+```
+
+---
+
+### Problema: Embeddings tardan mucho
+
+**Causa**: 484 tweets × 0.5-1 seg cada uno = 4-8 minutos
+
+**Esto es NORMAL la primera vez**. Después, los embeddings están cacheados.
+
+**Futuro**: Implementar caché en disco para que persista entre restarts.
+
+---
+
+### Problema: OpenRouter devuelve error 429 (rate limit)
+
+**Causa**: Demasiados requests en poco tiempo
+
+**Solución**:
+1. **Inmediata**: Esperar 1-2 minutos
+2. **Permanente**: Agregar rate limiting en el endpoint (ver sección CORS)
+
+---
+
+### Problema: Supabase dice "no embeddings in cache"
+
+**Causa**: No ejecutaste `/admin/precompute`
+
+**Solución**:
+```bash
+curl -X POST https://marco-voice-engine-api.fly.dev/admin/precompute
+```
+
+Espera 5-10 min hasta ver `[PRECOMPUTE] Done!`
+
+---
+
+## 📈 Monitoring y Mantenimiento
+
+### Logs en Tiempo Real
+
+**Marco Voice Engine**:
+```bash
+fly logs -a marco-voice-engine
+```
+
+**XSchedule-X**:
+```bash
+fly logs -a xschedule-x
+```
+
+---
+
+### Métricas de Fly.io
+
+**Ver estado**:
+```bash
+fly status -a marco-voice-engine
+fly status -a xschedule-x
+```
+
+**Ver métricas**:
+```bash
+fly dashboard -a marco-voice-engine
+```
+
+---
+
+### Costos Mensuales Estimados
+
+**Fly.io** (ambas apps):
+- Free tier: $0/mes (3 VMs shared-cpu-1x gratis)
+- Si excedes: ~$2-5/mes por VM adicional
+
+**OpenRouter**:
+- Embeddings (una vez): $0.0013
+- Generaciones (100/mes): ~$0.65
+- **Total**: ~$0.65/mes
+
+**Supabase**:
+- Free tier: $0/mes (500 MB database, 2 GB bandwidth)
+- Embeddings usan ~50 MB
+- **Total**: $0/mes (dentro de free tier)
+
+**TOTAL ESTIMADO**: $0-5/mes (casi todo gratis)
+
+---
+
+## 🔄 Actualizar Dataset (Mantenimiento)
+
+Cuando agregues nuevos tweets a dataset.json:
+
+1. **Copia nueva versión** a servidor:
+```bash
+cd ~/Desktop/MMEI/Proyectos\ Personales/00001bot/marco-voice-engine
+# Edita dataset.json
+fly deploy  # Incluye el nuevo dataset.json
+```
+
+2. **Re-calcula embeddings** (solo los nuevos):
+```bash
+curl -X POST https://marco-voice-engine-api.fly.dev/admin/precompute
+```
+
+El sistema detecta tweets que ya tienen embeddings y solo calcula los nuevos.
+
+---
+
+## 🎯 Próximos Pasos Inmediatos
+
+1. ⏳ **Esperar que termine precompute** (en progreso)
+2. ✅ **Probar `/generate` desde terminal**
+3. ✅ **Probar desde browser con DevTools**
+4. ✅ **Generar 1 tweet real y programarlo**
+5. ✅ **Esperar que se publique automáticamente**
+6. ✅ **Verificar métricas en tab "Publicados"**
+7. 📊 **Monitorear costos de OpenRouter** (primera semana)
+8. 🔧 **Ajustar si es necesario** (rate limits, judge threshold)
+
+---
+
 **Estado actual**: ⏳ Esperando finalización de precompute de embeddings (5-10 min)
 
-**Próximo paso**: Probar endpoint `/generate` cuando termine el precompute.
+**Próximo paso**: Ejecutar Test 2 (generación desde terminal) cuando termine precompute.
 
 ---
 
 *Documentación generada: 2025-11-13*
-*Última actualización: En espera de precompute*
+*Última actualización: Agregado flujo completo end-to-end y troubleshooting*
