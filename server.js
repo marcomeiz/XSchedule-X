@@ -348,18 +348,20 @@ app.post('/api/timeline/add-post', async (req, res) => {
       return res.status(404).json({ error: 'No hay timeline activo' });
     }
 
-    // Encontrar próximo slot vacío
+    // Encontrar próximo slot vacío EN EL FUTURO
+    const now = DateTime.utc();
     const { data: emptySlot } = await supabase
       .from('slots')
       .select('*')
       .eq('timeline_id', timeline.id)
       .eq('status', 'empty')
+      .gte('scheduled_time', now.toISO()) // Solo slots en el futuro
       .order('slot_index', { ascending: true })
       .limit(1)
       .single();
 
     if (!emptySlot) {
-      return res.status(400).json({ error: 'No hay slots disponibles' });
+      return res.status(400).json({ error: 'No hay slots disponibles en el futuro' });
     }
 
     // Actualizar slot
@@ -393,10 +395,10 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
   try {
     const { slotId } = req.params;
 
-    // Obtener el slot para verificar su estado
+    // Obtener el slot para verificar su estado y hora
     const { data: slot } = await supabase
       .from('slots')
-      .select('timeline_id, status')
+      .select('timeline_id, status, scheduled_time')
       .eq('id', slotId)
       .single();
 
@@ -408,6 +410,15 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
     if (slot.status === 'published') {
       return res.status(403).json({
         error: '🔒 No puedes eliminar un slot publicado. Solo se usan para analytics.'
+      });
+    }
+
+    // PROTEGER: No permitir limpiar slots en el pasado
+    const now = DateTime.utc();
+    const slotTime = DateTime.fromISO(slot.scheduled_time, { zone: 'utc' });
+    if (slotTime < now) {
+      return res.status(403).json({
+        error: '⏰ No puedes limpiar un slot del pasado. Los slots históricos se mantienen para registro.'
       });
     }
 
@@ -495,6 +506,139 @@ app.post('/api/timeline/shuffle', async (req, res) => {
     res.json({ success: true, timeline: updatedTimeline });
   } catch (error) {
     console.error('Error al mezclar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== PUBLISHED TWEETS (para pestaña de Publicados) =====
+app.get('/api/published', async (req, res) => {
+  try {
+    // Obtener todos los slots publicados
+    const { data: publishedSlots, error: queryError } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('status', 'published')
+      .not('tweet_id', 'is', null)
+      .order('published_at', { ascending: false })
+      .limit(50); // Últimos 50 publicados
+
+    console.log(`📊 Query published slots: ${publishedSlots?.length || 0} encontrados`);
+    if (queryError) {
+      console.error('Error en query de published:', queryError);
+    }
+
+    if (!publishedSlots || publishedSlots.length === 0) {
+      // Debug: contar cuántos hay en total
+      const { count } = await supabase
+        .from('slots')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'published');
+
+      console.log(`📊 Total slots con status=published: ${count}`);
+
+      return res.json({
+        success: true,
+        published: []
+      });
+    }
+
+    // Obtener métricas de Twitter para cada tweet
+    const tweetIds = publishedSlots.map(s => s.tweet_id);
+
+    try {
+      const tweets = await twitterClient.readOnly.v2.tweets(tweetIds, {
+        'tweet.fields': ['public_metrics', 'created_at']
+      });
+
+      // Mapear métricas con slots
+      const publishedWithMetrics = publishedSlots.map(slot => {
+        const tweetData = tweets.data?.find(t => t.id === slot.tweet_id);
+        return {
+          id: slot.id,
+          content: slot.content,
+          scheduled_time: slot.scheduled_time,
+          published_at: slot.published_at,
+          tweet_id: slot.tweet_id,
+          tweet_url: `https://twitter.com/user/status/${slot.tweet_id}`,
+          metrics: tweetData?.public_metrics || {
+            retweet_count: 0,
+            reply_count: 0,
+            like_count: 0,
+            quote_count: 0,
+            impression_count: 0
+          }
+        };
+      });
+
+      res.json({
+        success: true,
+        published: publishedWithMetrics,
+        total: publishedWithMetrics.length
+      });
+    } catch (twitterError) {
+      console.error('Error al obtener métricas de Twitter:', twitterError);
+      // Si falla Twitter, devolver sin métricas
+      const publishedBasic = publishedSlots.map(slot => ({
+        id: slot.id,
+        content: slot.content,
+        scheduled_time: slot.scheduled_time,
+        published_at: slot.published_at,
+        tweet_id: slot.tweet_id,
+        tweet_url: `https://twitter.com/user/status/${slot.tweet_id}`,
+        metrics: null
+      }));
+
+      res.json({
+        success: true,
+        published: publishedBasic,
+        total: publishedBasic.length,
+        note: 'Métricas no disponibles temporalmente'
+      });
+    }
+  } catch (error) {
+    console.error('Error al obtener tweets publicados:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ===== DEBUG ENDPOINT (temporal) =====
+app.get('/api/debug/slots', async (req, res) => {
+  try {
+    const { data: allSlots } = await supabase
+      .from('slots')
+      .select('id, status, content, tweet_id, published_at, scheduled_time')
+      .order('scheduled_time', { ascending: false })
+      .limit(20);
+
+    const statusCount = {
+      empty: 0,
+      filled: 0,
+      published: 0,
+      failed: 0
+    };
+
+    allSlots?.forEach(s => {
+      statusCount[s.status] = (statusCount[s.status] || 0) + 1;
+    });
+
+    res.json({
+      success: true,
+      totalSlots: allSlots?.length || 0,
+      statusCount,
+      recent20: allSlots?.map(s => ({
+        id: s.id,
+        status: s.status,
+        content: s.content?.substring(0, 50),
+        tweet_id: s.tweet_id,
+        published_at: s.published_at,
+        scheduled_time: s.scheduled_time
+      }))
+    });
+  } catch (error) {
+    console.error('Error en debug:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -758,29 +902,68 @@ async function checkAndPublishScheduledPosts() {
           throw new Error('Twitter no devolvió un ID de tweet válido');
         }
       } catch (twitterError) {
-        // Twitter rejected - this is a legitimate failure
-        console.error(`\n❌ ERROR EN SLOT #${slot.id}`);
-        console.error(`❌ Error completo:`, twitterError);
-        console.error(`❌ Error mensaje:`, twitterError.message);
-        console.error(`❌ Error code:`, twitterError.code);
-        console.error(`❌ Error data:`, JSON.stringify(twitterError.data, null, 2));
-        console.error(`❌ Es duplicate content?:`, twitterError.message?.includes('duplicate'));
+        console.error(`\n⚠️  ERROR EN SLOT #${slot.id}`);
+        console.error(`Error code:`, twitterError.code);
+        console.error(`Error mensaje:`, twitterError.message);
 
-        // Si el error tiene un tweet ID en algún lugar, aún podría haberse publicado
-        let possibleTweetId = null;
-        if (twitterError.data && twitterError.data.id) {
-          possibleTweetId = twitterError.data.id;
-          console.log(`⚠️  ADVERTENCIA: Error contiene tweet ID ${possibleTweetId} - el tweet podría estar publicado`);
+        // CRITICAL: Errores 403/429 pueden significar que el tweet SÍ se publicó
+        // Verificar si el tweet realmente está en Twitter antes de marcarlo como fallido
+        const errorCode = twitterError.code || twitterError.statusCode;
+        if (errorCode === 403 || errorCode === 429 || twitterError.message?.includes('403') || twitterError.message?.includes('429')) {
+          console.log(`\n🔍 Error 403/429 detectado. Verificando si el tweet se publicó de todos modos...`);
+
+          try {
+            // Esperar 3 segundos para dar tiempo a que Twitter procese
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            // Buscar el tweet en el timeline del usuario
+            const userTweets = await twitterClient.readOnly.v2.userTimeline('101048650', {
+              max_results: 10,
+              'tweet.fields': ['created_at', 'text']
+            });
+
+            // Buscar si alguno de los tweets recientes coincide con el contenido
+            const matchingTweet = userTweets.data?.data?.find(t =>
+              t.text === slot.content || t.text.includes(slot.content.substring(0, 100))
+            );
+
+            if (matchingTweet) {
+              // ✅ EL TWEET SÍ SE PUBLICÓ! Marcarlo como exitoso
+              tweetId = matchingTweet.id;
+              twitterSuccess = true;
+              console.log(`✅ RECUPERADO: Tweet SÍ se publicó a pesar del error (ID: ${tweetId})`);
+
+              // Actualizar en DB como publicado
+              await supabase
+                .from('slots')
+                .update({
+                  status: 'published',
+                  published_at: now.toISO(),
+                  tweet_id: tweetId,
+                  error_message: `Published despite ${errorCode} error (recovered)`
+                })
+                .eq('id', slot.id);
+
+              console.log(`✅ Estado actualizado en DB como publicado`);
+              continue; // Siguiente slot
+            } else {
+              console.log(`❌ Tweet NO encontrado en timeline. Error legítimo.`);
+            }
+          } catch (verifyError) {
+            console.error(`⚠️  No se pudo verificar si el tweet se publicó:`, verifyError.message);
+          }
         }
 
+        // Si llegamos aquí, el error es legítimo - marcar como fallido
         try {
           await supabase
             .from('slots')
             .update({
               status: 'failed',
-              error_message: `Twitter error: ${twitterError.message}${possibleTweetId ? ` (possible ID: ${possibleTweetId})` : ''}`
+              error_message: `Twitter error ${errorCode || 'unknown'}: ${twitterError.message}`
             })
             .eq('id', slot.id);
+          console.log(`❌ Slot marcado como fallido`);
         } catch (dbError) {
           console.error(`⚠️  No se pudo actualizar estado fallido en DB:`, dbError.message);
         }

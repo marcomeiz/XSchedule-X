@@ -281,15 +281,24 @@ function switchTab(tab) {
 
   // Toggle sections
   const timelineTab = document.getElementById('timelineTab');
+  const publishedTab = document.getElementById('publishedTab');
   const analyticsTab = document.getElementById('analyticsTab');
   const writeSection = document.querySelector('.write-section');
 
   if (tab === 'timeline') {
     timelineTab.classList.remove('hidden');
+    publishedTab.classList.add('hidden');
     analyticsTab.classList.add('hidden');
     writeSection.classList.remove('hidden');
-  } else {
+  } else if (tab === 'published') {
     timelineTab.classList.add('hidden');
+    publishedTab.classList.remove('hidden');
+    analyticsTab.classList.add('hidden');
+    writeSection.classList.add('hidden');
+    loadPublished();
+  } else if (tab === 'analytics') {
+    timelineTab.classList.add('hidden');
+    publishedTab.classList.add('hidden');
     analyticsTab.classList.remove('hidden');
     writeSection.classList.add('hidden');
     loadAnalytics();
@@ -428,6 +437,209 @@ function formatHour(hour) {
   if (hour === 12) return '12 PM';
   if (hour < 12) return hour + ' AM';
   return (hour - 12) + ' PM';
+}
+
+// ===== PUBLISHED TWEETS =====
+async function loadPublished() {
+  const loading = document.getElementById('publishedLoading');
+  const content = document.getElementById('publishedContent');
+  const empty = document.getElementById('publishedEmpty');
+  const grid = document.getElementById('publishedGrid');
+
+  loading.classList.remove('hidden');
+  content.classList.add('hidden');
+  empty.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/published');
+    const data = await res.json();
+
+    loading.classList.add('hidden');
+
+    if (!data.success || data.published.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+
+    // Render published tweets
+    grid.innerHTML = data.published.map(tweet => {
+      const publishedDate = new Date(tweet.published_at);
+      const metrics = tweet.metrics;
+
+      return `
+        <div class="published-card">
+          <div class="published-header">
+            <span class="published-date">${formatDate(publishedDate)}</span>
+            <a href="${tweet.tweet_url}" target="_blank" class="tweet-link">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+              </svg>
+              Ver en X
+            </a>
+          </div>
+          <div class="published-content">${escapeHtml(tweet.content)}</div>
+          ${metrics ? `
+            <div class="published-metrics">
+              <div class="metric">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                </svg>
+                <span>${formatNumber(metrics.like_count)}</span>
+              </div>
+              <div class="metric">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="17 1 21 5 17 9"></polyline>
+                  <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                  <polyline points="7 23 3 19 7 15"></polyline>
+                  <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                </svg>
+                <span>${formatNumber(metrics.retweet_count)}</span>
+              </div>
+              <div class="metric">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span>${formatNumber(metrics.reply_count)}</span>
+              </div>
+              <div class="metric">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <span>${formatNumber(metrics.impression_count)}</span>
+              </div>
+            </div>
+          ` : `
+            <div class="published-note">Métricas no disponibles</div>
+          `}
+        </div>
+      `;
+    }).join('');
+
+    content.classList.remove('hidden');
+  } catch (error) {
+    console.error('Error loading published tweets:', error);
+    loading.classList.add('hidden');
+    empty.classList.remove('hidden');
+  }
+}
+
+function formatDate(date) {
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Hace un momento';
+  if (diffMins < 60) return `Hace ${diffMins}m`;
+  if (diffHours < 24) return `Hace ${diffHours}h`;
+  if (diffDays < 7) return `Hace ${diffDays}d`;
+
+  return date.toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+// ===== AI GENERATION =====
+
+// Configure API endpoint - change this after deploying marco-voice-engine-api
+const AI_API_URL = 'https://marco-voice-engine-api.fly.dev';
+
+async function generateAI(mode) {
+  const modal = document.getElementById('aiModal');
+  const loading = document.getElementById('aiModalLoading');
+  const body = document.getElementById('aiModalBody');
+  const error = document.getElementById('aiModalError');
+  const title = document.getElementById('aiModalTitle');
+
+  // Show modal with loading state
+  modal.classList.remove('hidden');
+  loading.classList.remove('hidden');
+  body.classList.add('hidden');
+  error.classList.add('hidden');
+
+  // Update title based on mode
+  title.textContent = mode === 'ops' ? '✨ Variantes OPS' : '🔥 Variantes CHAOS';
+
+  try {
+    const response = await fetch(`${AI_API_URL}/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ mode }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || 'Error al generar variantes');
+    }
+
+    const data = await response.json();
+
+    // Hide loading, show body
+    loading.classList.add('hidden');
+    body.classList.remove('hidden');
+
+    // Display topic
+    document.getElementById('aiTopicText').textContent = data.topic;
+
+    // Display variants
+    const container = document.getElementById('aiVariantsContainer');
+    container.innerHTML = data.variants.map((variant, index) => `
+      <div class="ai-variant-card">
+        <div class="ai-variant-header">
+          <div class="ai-variant-label">Variante ${index + 1}</div>
+          <div class="ai-variant-score">Score: ${(variant.score * 100).toFixed(1)}%</div>
+        </div>
+        <div class="ai-variant-text">${escapeHtml(variant.text)}</div>
+        <div class="ai-variant-footer">
+          <button class="btn-select-variant" onclick="selectVariant('${escapeHtml(variant.text).replace(/'/g, "\\'")}')">
+            Programar este
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+  } catch (err) {
+    console.error('Error generating AI variants:', err);
+    loading.classList.add('hidden');
+    error.classList.remove('hidden');
+    document.getElementById('aiErrorText').textContent =
+      err.message || 'No se pudo generar las variantes. Por favor intenta de nuevo.';
+  }
+}
+
+function selectVariant(text) {
+  // Decode HTML entities
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  const decodedText = textarea.value;
+
+  // Fill the textarea with the selected variant
+  document.getElementById('postContent').value = decodedText;
+  updateCharCount();
+
+  // Close modal
+  closeAIModal();
+
+  // Scroll to textarea
+  document.getElementById('postContent').focus();
+}
+
+function closeAIModal() {
+  const modal = document.getElementById('aiModal');
+  modal.classList.add('hidden');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 // ===== INIT =====

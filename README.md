@@ -81,54 +81,127 @@ npm run dev
 
 5. ¡Listo! Tus publicaciones se publicarán automáticamente en los horarios programados
 
-## 🌐 Deploy en Render (Gratis)
+## 🌐 Deploy en Fly.io (Gratis Forever)
 
-### Opción 1: Deploy automático con render.yaml (Recomendado)
+### ✨ Por qué Fly.io?
+- ✅ **Gratis para siempre** (3 VMs compartidas de 256MB)
+- ✅ **NUNCA se duerme** - Perfecto para cron jobs
+- ✅ **160GB de tráfico/mes gratis**
+- ✅ Deploy super rápido con Docker
 
-1. **Crea una cuenta en [Render](https://render.com)**
+### 📋 Requisitos previos
 
-2. **Haz clic en "New +" → "Web Service"**
+1. **Instala Fly CLI**:
+   ```bash
+   # macOS/Linux
+   curl -L https://fly.io/install.sh | sh
 
-3. **Conecta tu repositorio de GitHub**
+   # Windows (PowerShell)
+   iwr https://fly.io/install.ps1 -useb | iex
+   ```
 
-4. **Render detectará automáticamente el `render.yaml`**
+2. **Crea una cuenta gratuita**:
+   ```bash
+   fly auth signup
+   # O si ya tienes cuenta:
+   fly auth login
+   ```
 
-5. **Configura las variables de entorno:**
-   - `TWITTER_API_KEY` → Tu API Key
-   - `TWITTER_API_SECRET` → Tu API Secret
-   - `TWITTER_ACCESS_TOKEN` → Tu Access Token
-   - `TWITTER_ACCESS_SECRET` → Tu Access Secret
-   - `TWITTER_BEARER_TOKEN` → Tu Bearer Token
+### 🚀 Deploy paso a paso
 
-6. **Haz clic en "Create Web Service"**
+1. **Clona y entra al proyecto** (si no lo hiciste ya):
+   ```bash
+   git clone https://github.com/tu-usuario/XSchedule-X.git
+   cd XSchedule-X
+   ```
 
-7. **¡Listo!** Tu app estará disponible en `https://tu-app.onrender.com`
+2. **Lanza la app** (esto crea y configura todo automáticamente):
+   ```bash
+   fly launch --now
+   ```
 
-### Opción 2: Deploy manual
+   Durante el proceso:
+   - Te preguntará el nombre de la app → Presiona Enter para usar el sugerido o elige uno
+   - ¿Copiar configuración del fly.toml? → **Sí** (y)
+   - ¿Crear base de datos Postgres? → **No** (n) - Usas Supabase
+   - ¿Crear base de datos Redis? → **No** (n)
+   - ¿Desplegar ahora? → **No** (n) - Primero configuramos los secrets
 
-Si prefieres configurar manualmente:
+3. **Configura las variables de entorno (secrets)**:
+   ```bash
+   fly secrets set TWITTER_API_KEY="tu_api_key"
+   fly secrets set TWITTER_API_SECRET="tu_api_secret"
+   fly secrets set TWITTER_ACCESS_TOKEN="tu_access_token"
+   fly secrets set TWITTER_ACCESS_SECRET="tu_access_secret"
+   fly secrets set TWITTER_BEARER_TOKEN="tu_bearer_token"
+   fly secrets set SUPABASE_URL="tu_supabase_url"
+   fly secrets set SUPABASE_ANON_KEY="tu_supabase_anon_key"
+   ```
 
-1. En Render, selecciona tu repositorio
-2. Configura:
-   - **Name**: `xschedule-x`
-   - **Runtime**: Node
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-   - **Plan**: Free
-3. Agrega las variables de entorno (mismo paso 5 de arriba)
-4. Deploy automático
+4. **Deploy final**:
+   ```bash
+   fly deploy
+   ```
 
-### ⚠️ Importante sobre el plan gratuito de Render:
+5. **¡Listo!** Tu app estará disponible en:
+   ```bash
+   fly open
+   # O ve a: https://tu-app.fly.dev
+   ```
 
-- El servicio se "duerme" después de 15 minutos de inactividad
-- Cuando alguien visita la URL, se "despierta" (tarda ~30 segundos)
-- **Solución**: Usa un servicio como [UptimeRobot](https://uptimerobot.com/) (gratis) para hacer ping cada 5 minutos y mantenerlo despierto
+### 🛠️ Comandos útiles
 
-### 🚀 Alternativas gratuitas:
+```bash
+# Ver logs en tiempo real
+fly logs
 
-- **Railway.app**: 500 horas gratis/mes, muy fácil de usar
-- **Fly.io**: 3 VMs gratis, excelente rendimiento
-- **Heroku**: Requiere tarjeta de crédito para verificación
+# Ver estado de la app
+fly status
+
+# Ver información de la app
+fly info
+
+# Abrir la app en el navegador
+fly open
+
+# SSH a la máquina (para debug)
+fly ssh console
+
+# Ver todas tus apps
+fly apps list
+
+# Destruir la app (si quieres empezar de cero)
+fly apps destroy tu-app-name
+```
+
+### 🔧 Configuración avanzada
+
+#### Cambiar región
+Por defecto usa Miami (`mia`). Para cambiar región, edita `fly.toml`:
+```toml
+primary_region = "gru"  # São Paulo
+# Otras regiones: iad=Virginia, lhr=Londres, cdg=París, syd=Sydney
+```
+
+Luego aplica cambios:
+```bash
+fly deploy
+```
+
+#### Escalar recursos (si necesitas más RAM)
+```bash
+# Ver configuración actual
+fly scale show
+
+# Aumentar RAM (nota: plan gratuito es 256MB)
+fly scale memory 512  # Esto puede costar dinero
+```
+
+### ⚠️ Límites del plan gratuito
+- **3 VMs compartidas** de 256MB cada una (suficiente para esta app)
+- **160GB de transferencia/mes** (más que suficiente)
+- **Sin tarjeta de crédito requerida** para empezar
+- **La app NUNCA se duerme** (a diferencia de Render)
 
 ## 📂 Estructura del proyecto
 
