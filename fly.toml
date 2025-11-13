@@ -1,54 +1,49 @@
-# fly.toml app configuration file generated for xschedule-x
+# fly.toml app configuration file generated for xschedule-x on 2025-11-13T07:50:42Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = "xschedule-x"
-primary_region = "iad"  # Virginia (cambia a tu región preferida: gru=Sao Paulo, lhr=Londres, dfw=Dallas)
+app = 'xschedule-x'
+primary_region = 'iad'
 
 [build]
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '3000'
 
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = false  # CRÍTICO: Evita que se duerma (para cron jobs)
+  auto_stop_machines = 'off'
   auto_start_machines = true
-  min_machines_running = 1    # Mantener al menos 1 máquina corriendo siempre
+  min_machines_running = 1
 
-[[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 256  # Plan gratuito: 256MB
-
-# Variables de entorno (configura con: fly secrets set KEY=VALUE)
-[env]
-  PORT = "3000"
-  NODE_ENV = "production"
-
-# Health check para asegurar que la app esté corriendo
 [[services]]
-  http_checks = []
+  protocol = 'tcp'
   internal_port = 3000
-  processes = ["app"]
-  protocol = "tcp"
-  script_checks = []
+  processes = ['app']
+
+  [[services.ports]]
+    port = 80
+    handlers = ['http']
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ['tls', 'http']
 
   [services.concurrency]
+    type = 'connections'
     hard_limit = 25
     soft_limit = 20
-    type = "connections"
-
-  [[services.ports]]
-    force_https = true
-    handlers = ["http"]
-    port = 80
-
-  [[services.ports]]
-    handlers = ["tls", "http"]
-    port = 443
 
   [[services.tcp_checks]]
-    grace_period = "10s"
-    interval = "15s"
-    restart_limit = 0
-    timeout = "2s"
+    interval = '15s'
+    timeout = '2s'
+    grace_period = '10s'
+
+[[vm]]
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
