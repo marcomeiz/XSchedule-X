@@ -1105,7 +1105,8 @@ body::before {
 
 /* ===== PUBLISHED TWEETS SECTION ===== */
 .published-section {
-    padding: var(--space-8) var(--space-6);
+    margin-bottom: var(--space-10);
+    animation: slotsEnter var(--duration-slow) var(--ease-spring) 0.3s backwards;
 }
 
 .published-content {
