@@ -348,18 +348,20 @@ app.post('/api/timeline/add-post', async (req, res) => {
       return res.status(404).json({ error: 'No hay timeline activo' });
     }
 
-    // Encontrar próximo slot vacío
+    // Encontrar próximo slot vacío EN EL FUTURO
+    const now = DateTime.utc();
     const { data: emptySlot } = await supabase
       .from('slots')
       .select('*')
       .eq('timeline_id', timeline.id)
       .eq('status', 'empty')
+      .gte('scheduled_time', now.toISO()) // Solo slots en el futuro
       .order('slot_index', { ascending: true })
       .limit(1)
       .single();
 
     if (!emptySlot) {
-      return res.status(400).json({ error: 'No hay slots disponibles' });
+      return res.status(400).json({ error: 'No hay slots disponibles en el futuro' });
     }
 
     // Actualizar slot
@@ -393,10 +395,10 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
   try {
     const { slotId } = req.params;
 
-    // Obtener el slot para verificar su estado
+    // Obtener el slot para verificar su estado y hora
     const { data: slot } = await supabase
       .from('slots')
-      .select('timeline_id, status')
+      .select('timeline_id, status, scheduled_time')
       .eq('id', slotId)
       .single();
 
@@ -408,6 +410,15 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
     if (slot.status === 'published') {
       return res.status(403).json({
         error: '🔒 No puedes eliminar un slot publicado. Solo se usan para analytics.'
+      });
+    }
+
+    // PROTEGER: No permitir limpiar slots en el pasado
+    const now = DateTime.utc();
+    const slotTime = DateTime.fromISO(slot.scheduled_time, { zone: 'utc' });
+    if (slotTime < now) {
+      return res.status(403).json({
+        error: '⏰ No puedes limpiar un slot del pasado. Los slots históricos se mantienen para registro.'
       });
     }
 
@@ -496,6 +507,87 @@ app.post('/api/timeline/shuffle', async (req, res) => {
   } catch (error) {
     console.error('Error al mezclar:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== PUBLISHED TWEETS (para pestaña de Publicados) =====
+app.get('/api/published', async (req, res) => {
+  try {
+    // Obtener todos los slots publicados
+    const { data: publishedSlots } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('status', 'published')
+      .not('tweet_id', 'is', null)
+      .order('published_at', { ascending: false })
+      .limit(50); // Últimos 50 publicados
+
+    if (!publishedSlots || publishedSlots.length === 0) {
+      return res.json({
+        success: true,
+        published: []
+      });
+    }
+
+    // Obtener métricas de Twitter para cada tweet
+    const tweetIds = publishedSlots.map(s => s.tweet_id);
+
+    try {
+      const tweets = await twitterClient.readOnly.v2.tweets(tweetIds, {
+        'tweet.fields': ['public_metrics', 'created_at']
+      });
+
+      // Mapear métricas con slots
+      const publishedWithMetrics = publishedSlots.map(slot => {
+        const tweetData = tweets.data?.find(t => t.id === slot.tweet_id);
+        return {
+          id: slot.id,
+          content: slot.content,
+          scheduled_time: slot.scheduled_time,
+          published_at: slot.published_at,
+          tweet_id: slot.tweet_id,
+          tweet_url: `https://twitter.com/user/status/${slot.tweet_id}`,
+          metrics: tweetData?.public_metrics || {
+            retweet_count: 0,
+            reply_count: 0,
+            like_count: 0,
+            quote_count: 0,
+            impression_count: 0
+          }
+        };
+      });
+
+      res.json({
+        success: true,
+        published: publishedWithMetrics,
+        total: publishedWithMetrics.length
+      });
+    } catch (twitterError) {
+      console.error('Error al obtener métricas de Twitter:', twitterError);
+      // Si falla Twitter, devolver sin métricas
+      const publishedBasic = publishedSlots.map(slot => ({
+        id: slot.id,
+        content: slot.content,
+        scheduled_time: slot.scheduled_time,
+        published_at: slot.published_at,
+        tweet_id: slot.tweet_id,
+        tweet_url: `https://twitter.com/user/status/${slot.tweet_id}`,
+        metrics: null
+      }));
+
+      res.json({
+        success: true,
+        published: publishedBasic,
+        total: publishedBasic.length,
+        note: 'Métricas no disponibles temporalmente'
+      });
+    }
+  } catch (error) {
+    console.error('Error al obtener tweets publicados:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
