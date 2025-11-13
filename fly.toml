@@ -1,0 +1,54 @@
+# fly.toml app configuration file generated for xschedule-x
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = "xschedule-x"
+primary_region = "mia"  # Miami (cambia a tu región preferida: gru=Sao Paulo, iad=Virginia, lhr=Londres)
+
+[build]
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false  # CRÍTICO: Evita que se duerma (para cron jobs)
+  auto_start_machines = true
+  min_machines_running = 1    # Mantener al menos 1 máquina corriendo siempre
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256  # Plan gratuito: 256MB
+
+# Variables de entorno (configura con: fly secrets set KEY=VALUE)
+[env]
+  PORT = "3000"
+  NODE_ENV = "production"
+
+# Health check para asegurar que la app esté corriendo
+[[services]]
+  http_checks = []
+  internal_port = 3000
+  processes = ["app"]
+  protocol = "tcp"
+  script_checks = []
+
+  [services.concurrency]
+    hard_limit = 25
+    soft_limit = 20
+    type = "connections"
+
+  [[services.ports]]
+    force_https = true
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [[services.tcp_checks]]
+    grace_period = "10s"
+    interval = "15s"
+    restart_limit = 0
+    timeout = "2s"
