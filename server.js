@@ -1670,6 +1670,256 @@ app.post('/api/config/reset', async (req, res) => {
   }
 });
 
+// ===== BANCO DE PRUEBAS PARA PROMPTS =====
+import promptTestingManager from './config/prompt-testing.js';
+
+// Get current prompt
+app.get('/api/config/prompts/current', async (req, res) => {
+  try {
+    const prompt = await configManager.getCurrentPrompt();
+    res.json({ success: true, prompt });
+  } catch (error) {
+    console.error('Error getting current prompt:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Initialize testing manager
+promptTestingManager.init();
+
+// Create test for prompt
+app.post('/api/testing/prompts/:promptId/tests', async (req, res) => {
+  try {
+    const { promptId } = req.params;
+    const { testConfig = {} } = req.body;
+    
+    // Input validation
+    if (!promptId || typeof promptId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid prompt ID' });
+    }
+    
+    // Rate limiting: max 10 tests per minute per IP
+    const clientIP = req.ip || req.connection.remoteAddress;
+    const rateLimitKey = `testing_rate_${clientIP}`;
+    const currentCount = global.testingRateLimit?.get(rateLimitKey) || 0;
+    
+    if (currentCount >= 10) {
+      return res.status(429).json({ 
+        success: false, 
+        error: 'Too many test requests. Please wait a minute before creating more tests.' 
+      });
+    }
+    
+    // Update rate limit
+    if (!global.testingRateLimit) {
+      global.testingRateLimit = new Map();
+    }
+    global.testingRateLimit.set(rateLimitKey, currentCount + 1);
+    
+    // Clear rate limit after 1 minute
+    setTimeout(() => {
+      if (global.testingRateLimit) {
+        global.testingRateLimit.delete(rateLimitKey);
+      }
+    }, 60000);
+    
+    // Get prompt data from configuration
+    const promptData = configManager.get('prompts.current');
+    if (!promptData || promptData.id !== promptId) {
+      return res.status(404).json({ success: false, error: 'Prompt not found' });
+    }
+    
+    const test = promptTestingManager.createTest(promptId, promptData, testConfig);
+    await promptTestingManager.saveTests();
+    
+    res.json({ success: true, test });
+  } catch (error) {
+    console.error('Error creating test:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Run test
+app.post('/api/testing/tests/:testId/run', async (req, res) => {
+  try {
+    const { testId } = req.params;
+    
+    const result = await promptTestingManager.runTest(testId);
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('Error running test:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get test results
+app.get('/api/testing/tests/:testId/results', async (req, res) => {
+  try {
+    const { testId } = req.params;
+    
+    const result = promptTestingManager.results.get(testId);
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Test result not found' });
+    }
+    
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('Error getting test result:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get all tests for a prompt
+app.get('/api/testing/prompts/:promptId/tests', async (req, res) => {
+  try {
+    const { promptId } = req.params;
+    
+    const tests = Array.from(promptTestingManager.tests.values()).filter(
+      test => test.promptId === promptId
+    );
+    
+    res.json({ success: true, tests });
+  } catch (error) {
+    console.error('Error getting tests:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Run batch tests
+app.post('/api/testing/prompts/:promptId/batch', async (req, res) => {
+  try {
+    const { promptId } = req.params;
+    const { testCount = 5 } = req.body;
+    
+    // Get prompt data from configuration
+    const promptData = configManager.get('prompts.current');
+    if (!promptData || promptData.id !== promptId) {
+      return res.status(404).json({ success: false, error: 'Prompt not found' });
+    }
+    
+    const batchResults = await promptTestingManager.runBatchTests(promptId, testCount);
+    
+    res.json({ success: true, batchResults });
+  } catch (error) {
+    console.error('Error running batch tests:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Compare tests
+app.post('/api/testing/compare', async (req, res) => {
+  try {
+    const { testIds } = req.body;
+    
+    if (!Array.isArray(testIds) || testIds.length < 2) {
+      return res.status(400).json({ success: false, error: 'At least 2 test IDs are required for comparison' });
+    }
+    
+    const comparison = promptTestingManager.compareTests(testIds);
+    res.json({ success: true, comparison });
+  } catch (error) {
+    console.error('Error comparing tests:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get test history
+app.get('/api/testing/history', async (req, res) => {
+  try {
+    const { limit = 50, promptId } = req.query;
+    
+    let results;
+    if (promptId) {
+      results = promptTestingManager.getTestResults(promptId);
+    } else {
+      results = promptTestingManager.getTestHistory(parseInt(limit));
+    }
+    
+    res.json({ success: true, history: results });
+  } catch (error) {
+    console.error('Error getting test history:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete test
+app.delete('/api/testing/tests/:testId', async (req, res) => {
+  try {
+    const { testId } = req.params;
+    
+    const deleted = promptTestingManager.deleteTest(testId);
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: 'Test not found' });
+    }
+    
+    await Promise.all([
+      promptTestingManager.saveTests(),
+      promptTestingManager.saveResults()
+    ]);
+    
+    res.json({ success: true, message: 'Test deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting test:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Quick test endpoint for frontend
+app.post('/api/testing/prompts/quick-test', async (req, res) => {
+  try {
+    const { promptId, promptContent, variables = {} } = req.body;
+    
+    // Input validation
+    if (!promptContent || typeof promptContent !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid prompt content' });
+    }
+    
+    if (promptContent.length > 5000) {
+      return res.status(400).json({ success: false, error: 'Prompt content too long (max 5000 characters)' });
+    }
+    
+    // Rate limiting: max 10 tests per minute per IP
+    const clientIP = req.ip || req.connection.remoteAddress;
+    const rateLimitKey = `testing_rate_${clientIP}`;
+    const currentCount = global.testingRateLimit?.get(rateLimitKey) || 0;
+    
+    if (currentCount >= 10) {
+      return res.status(429).json({ success: false, error: 'Rate limit exceeded. Max 10 tests per minute.' });
+    }
+    
+    // Update rate limit
+    if (!global.testingRateLimit) {
+      global.testingRateLimit = new Map();
+    }
+    global.testingRateLimit.set(rateLimitKey, currentCount + 1);
+    
+    // Clear rate limit after 1 minute
+    setTimeout(() => {
+      if (global.testingRateLimit) {
+        global.testingRateLimit.delete(rateLimitKey);
+      }
+    }, 60000);
+    
+    // Create a quick test
+    const testId = `quick-test-${Date.now()}`;
+    const testData = {
+      id: testId,
+      promptId: promptId || 'quick-test',
+      promptContent,
+      variables,
+      createdAt: new Date().toISOString()
+    };
+    
+    // Run the test
+    const result = await promptTestingManager.runQuickTest(testData);
+    
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('Error in quick test:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ===== INICIAR SERVIDOR =====
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 XSchedule-X corriendo en http://localhost:${PORT}`);

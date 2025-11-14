@@ -724,6 +724,7 @@ function switchConfigSection(section, event) {
   document.getElementById('configLLM').classList.add('hidden');
   document.getElementById('configAPI').classList.add('hidden');
   document.getElementById('configApp').classList.add('hidden');
+  document.getElementById('configTesting').classList.add('hidden');
 
   // Show selected section
   if (section === 'prompts') {
@@ -734,6 +735,9 @@ function switchConfigSection(section, event) {
     document.getElementById('configAPI').classList.remove('hidden');
   } else if (section === 'app') {
     document.getElementById('configApp').classList.remove('hidden');
+  } else if (section === 'testing') {
+    document.getElementById('configTesting').classList.remove('hidden');
+    initializeTestingSection();
   }
 }
 
@@ -1476,8 +1480,14 @@ function testPrompt() {
     return;
   }
   
-  // Create a test modal or show a preview
-  showNotification('Función de prueba de prompt - Implementar según necesidades', 'info');
+  // Save current prompt first if needed
+  const name = document.getElementById('promptName').value.trim() || 'Prompt de Prueba';
+  
+  // Switch to testing section
+  switchConfigSection('testing');
+  
+  // Show notification
+  showNotification('Prompt cargado en el banco de pruebas', 'success');
 }
 
 function clearPromptHistory() {
@@ -1807,7 +1817,423 @@ function showConfigurationView() {
   // Setup event listeners if not already setup
   if (!window.configListenersSetup) {
     setupConfigEventListeners();
-    window.configListenersSetup = true;
+  }
+}
+
+// ===== BANCO DE PRUEBAS DE PROMPTS =====
+
+let currentTestingPrompt = null;
+let testResults = [];
+
+// Initialize testing section
+function initializeTestingSection() {
+  loadCurrentPromptForTesting();
+  loadTestHistory();
+}
+
+// Load current prompt for testing
+async function loadCurrentPromptForTesting() {
+  try {
+    const response = await fetch('/api/config/prompts/current');
+    const data = await response.json();
+    
+    if (data.success && data.prompt) {
+      currentTestingPrompt = data.prompt;
+      displayCurrentPromptForTesting(data.prompt);
+      generateVariableInputs(data.prompt.variables || []);
+    } else {
+      document.getElementById('testingPromptName').textContent = 'No hay prompt activo';
+      document.getElementById('testingPromptContent').textContent = 'Crea o selecciona un prompt primero';
+      document.getElementById('testingVariablesInputs').innerHTML = '';
+    }
+  } catch (error) {
+    console.error('Error loading current prompt for testing:', error);
+    document.getElementById('testingPromptName').textContent = 'Error al cargar prompt';
+    document.getElementById('testingPromptContent').textContent = 'No se pudo cargar el prompt actual';
+  }
+}
+
+// Display current prompt in testing section
+function displayCurrentPromptForTesting(prompt) {
+  document.getElementById('testingPromptName').textContent = prompt.name || 'Sin nombre';
+  document.getElementById('testingPromptContent').textContent = prompt.content || '';
+  
+  const variablesContainer = document.getElementById('testingPromptVariables');
+  variablesContainer.innerHTML = '';
+  
+  if (prompt.variables && prompt.variables.length > 0) {
+    prompt.variables.forEach(variable => {
+      const tag = document.createElement('span');
+      tag.className = 'prompt-variable-tag';
+      tag.textContent = `{${variable}}`;
+      variablesContainer.appendChild(tag);
+    });
+  } else {
+    variablesContainer.innerHTML = '<span style="color: var(--label-tertiary);">Sin variables</span>';
+  }
+}
+
+// Generate variable input fields
+function generateVariableInputs(variables) {
+  const container = document.getElementById('testingVariablesInputs');
+  container.innerHTML = '';
+  
+  if (variables.length === 0) {
+    container.innerHTML = '<p style="color: var(--label-tertiary); font-size: 14px;">Este prompt no tiene variables</p>';
+    return;
+  }
+  
+  variables.forEach(variable => {
+    const group = document.createElement('div');
+    group.className = 'variable-input-group';
+    
+    const label = document.createElement('label');
+    label.textContent = `Variable: {${variable}}`;
+    
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'variable-input';
+    input.id = `testVariable_${variable}`;
+    input.placeholder = `Ingresa valor para ${variable}`;
+    input.value = getDefaultTestValue(variable);
+    
+    group.appendChild(label);
+    group.appendChild(input);
+    container.appendChild(group);
+  });
+}
+
+// Get default test value for variable
+function getDefaultTestValue(variable) {
+  const defaults = {
+    'topic': 'inteligencia artificial',
+    'tone': 'profesional',
+    'platform': 'Twitter',
+    'hashtags': '#tecnología #innovación',
+    'mention': '@usuario'
+  };
+  
+  return defaults[variable] || `test_${variable}`;
+}
+
+// Run quick test
+async function runQuickTest() {
+  if (!currentTestingPrompt) {
+    alert('No hay un prompt activo para probar');
+    return;
+  }
+  
+  try {
+    // Collect test variables
+    const testVariables = {};
+    const variables = currentTestingPrompt.variables || [];
+    
+    variables.forEach(variable => {
+      const input = document.getElementById(`testVariable_${variable}`);
+      if (input) {
+        testVariables[variable] = input.value || getDefaultTestValue(variable);
+      }
+    });
+    
+    // Create test
+    const createResponse = await fetch(`/api/testing/prompts/${currentTestingPrompt.id}/tests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        testConfig: {
+          testVariables: testVariables,
+          priority: 'high'
+        }
+      })
+    });
+    
+    const createData = await createResponse.json();
+    
+    if (!createData.success) {
+      throw new Error(createData.error || 'Error al crear prueba');
+    }
+    
+    const test = createData.test;
+    
+    // Run the test
+    const runResponse = await fetch(`/api/testing/tests/${test.id}/run`, {
+      method: 'POST'
+    });
+    
+    const runData = await runResponse.json();
+    
+    if (!runData.success) {
+      throw new Error(runData.error || 'Error al ejecutar prueba');
+    }
+    
+    // Display result
+    displayTestResult(runData.result);
+    
+  } catch (error) {
+    console.error('Error running quick test:', error);
+    alert('Error al ejecutar prueba: ' + error.message);
+  }
+}
+
+// Run batch test
+async function runBatchTest() {
+  if (!currentTestingPrompt) {
+    alert('No hay un prompt activo para probar');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`/api/testing/prompts/${currentTestingPrompt.id}/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ testCount: 5 })
+    });
+    
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error(data.error || 'Error al ejecutar pruebas por lotes');
+    }
+    
+    // Display batch results
+    displayBatchResults(data.batchResults);
+    
+  } catch (error) {
+    console.error('Error running batch test:', error);
+    alert('Error al ejecutar pruebas por lotes: ' + error.message);
+  }
+}
+
+// Display test result
+function displayTestResult(result) {
+  const resultsList = document.getElementById('testResultsList');
+  
+  const resultCard = document.createElement('div');
+  resultCard.className = `test-result-card ${result.status}`;
+  
+  const header = document.createElement('div');
+  header.className = 'test-result-header';
+  
+  const title = document.createElement('div');
+  title.className = 'test-result-title';
+  title.textContent = `Prueba ${new Date().toLocaleTimeString()}`;
+  
+  const status = document.createElement('div');
+  status.className = `test-result-status ${result.status}`;
+  status.textContent = result.status;
+  
+  header.appendChild(title);
+  header.appendChild(status);
+  
+  if (result.response) {
+    const content = document.createElement('div');
+    content.className = 'test-result-content';
+    content.textContent = result.response;
+    resultCard.appendChild(content);
+  }
+  
+  if (result.metrics) {
+    const metrics = document.createElement('div');
+    metrics.className = 'test-result-metrics';
+    
+    const metricsData = [
+      { label: 'Calidad', value: `${(result.metrics.quality * 100).toFixed(1)}%` },
+      { label: 'Tiempo', value: `${result.metrics.responseTime}ms` },
+      { label: 'Longitud', value: `${result.metrics.length} chars` },
+      { label: 'Costo', value: `$${result.metrics.estimatedCost.toFixed(4)}` }
+    ];
+    
+    metricsData.forEach(metric => {
+      const item = document.createElement('div');
+      item.className = 'metric-item';
+      
+      const value = document.createElement('span');
+      value.className = 'metric-value';
+      value.textContent = metric.value;
+      
+      const label = document.createElement('span');
+      label.className = 'metric-label';
+      label.textContent = metric.label;
+      
+      item.appendChild(value);
+      item.appendChild(label);
+      metrics.appendChild(item);
+    });
+    
+    resultCard.appendChild(metrics);
+  }
+  
+  if (result.error) {
+    const error = document.createElement('div');
+    error.className = 'test-result-content';
+    error.style.color = 'var(--system-red)';
+    error.textContent = `Error: ${result.error}`;
+    resultCard.appendChild(error);
+  }
+  
+  resultsList.insertBefore(resultCard, resultsList.firstChild);
+  
+  // Update stats
+  updateTestStats();
+}
+
+// Display batch results
+function displayBatchResults(batchResults) {
+  const resultsList = document.getElementById('testResultsList');
+  
+  const summaryCard = document.createElement('div');
+  summaryCard.className = 'test-result-card success';
+  
+  const header = document.createElement('div');
+  header.className = 'test-result-header';
+  
+  const title = document.createElement('div');
+  title.className = 'test-result-title';
+  title.textContent = `Pruebas por Lotes (${batchResults.total} pruebas)`;
+  
+  const status = document.createElement('div');
+  status.className = 'test-result-status success';
+  status.textContent = 'COMPLETADO';
+  
+  header.appendChild(title);
+  header.appendChild(status);
+  summaryCard.appendChild(header);
+  
+  const content = document.createElement('div');
+  content.className = 'test-result-content';
+  content.innerHTML = `
+    <strong>Resumen de Pruebas:</strong><br>
+    ✓ Completadas: ${batchResults.completed}<br>
+    ✗ Fallidas: ${batchResults.failed}<br>
+    📊 Calidad Promedio: ${(batchResults.averageQuality * 100).toFixed(1)}%<br>
+    ⏱️ Tiempo Promedio: ${batchResults.averageResponseTime.toFixed(0)}ms
+  `;
+  summaryCard.appendChild(content);
+  
+  resultsList.insertBefore(summaryCard, resultsList.firstChild);
+  
+  // Display individual results
+  if (batchResults.results) {
+    batchResults.results.forEach(result => {
+      if (result && result.status === 'completed') {
+        displayTestResult(result);
+      }
+    });
+  }
+  
+  updateTestStats();
+}
+
+// Update test statistics
+function updateTestStats() {
+  const totalTests = testResults.length;
+  const successTests = testResults.filter(r => r.status === 'completed').length;
+  const failedTests = testResults.filter(r => r.status === 'failed').length;
+  
+  document.getElementById('totalTests').textContent = totalTests;
+  document.getElementById('successTests').textContent = successTests;
+  document.getElementById('failedTests').textContent = failedTests;
+}
+
+// Load test history
+async function loadTestHistory() {
+  try {
+    const response = await fetch('/api/testing/history?limit=10');
+    const data = await response.json();
+    
+    if (data.success && data.history) {
+      displayTestHistory(data.history);
+    }
+  } catch (error) {
+    console.error('Error loading test history:', error);
+  }
+}
+
+// Display test history
+function displayTestHistory(history) {
+  const historyList = document.getElementById('testHistoryList');
+  historyList.innerHTML = '';
+  
+  if (history.length === 0) {
+    historyList.innerHTML = '<p style="color: var(--label-tertiary); text-align: center; padding: var(--space-4);">No hay pruebas previas</p>';
+    return;
+  }
+  
+  history.forEach(result => {
+    const item = document.createElement('div');
+    item.className = 'test-history-item';
+    
+    const info = document.createElement('div');
+    info.className = 'test-history-info';
+    
+    const title = document.createElement('div');
+    title.className = 'test-history-title';
+    title.textContent = result.status === 'completed' ? 'Prueba Exitosa' : 'Prueba Fallida';
+    
+    const time = document.createElement('div');
+    time.className = 'test-history-time';
+    time.textContent = new Date(result.completedAt || result.failedAt).toLocaleString();
+    
+    info.appendChild(title);
+    info.appendChild(time);
+    
+    const actions = document.createElement('div');
+    actions.className = 'test-history-actions';
+    
+    const viewBtn = document.createElement('button');
+    viewBtn.className = 'btn-icon-small';
+    viewBtn.innerHTML = '👁️';
+    viewBtn.title = 'Ver detalles';
+    viewBtn.onclick = () => displayTestResult(result);
+    
+    actions.appendChild(viewBtn);
+    
+    item.appendChild(info);
+    item.appendChild(actions);
+    
+    historyList.appendChild(item);
+  });
+}
+
+// Clear test results
+function clearTestResults() {
+  document.getElementById('testResultsList').innerHTML = '';
+  testResults = [];
+  updateTestStats();
+}
+
+// Initialize testing when config section is switched
+function switchConfigSection(section, event) {
+  // Update navigation buttons
+  document.querySelectorAll('.config-nav-item').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  
+  // Handle both onclick and addEventListener calls
+  const target = event ? event.target.closest('.config-nav-item') : document.querySelector(`[onclick*="switchConfigSection('${section}')"]`);
+  if (target) {
+    target.classList.add('active');
+  }
+
+  // Hide all sections
+  document.getElementById('configPrompts').classList.add('hidden');
+  document.getElementById('configLLM').classList.add('hidden');
+  document.getElementById('configAPI').classList.add('hidden');
+  document.getElementById('configApp').classList.add('hidden');
+  document.getElementById('configTesting').classList.add('hidden');
+
+  // Show selected section
+  if (section === 'prompts') {
+    document.getElementById('configPrompts').classList.remove('hidden');
+  } else if (section === 'llm') {
+    document.getElementById('configLLM').classList.remove('hidden');
+  } else if (section === 'api') {
+    document.getElementById('configAPI').classList.remove('hidden');
+  } else if (section === 'app') {
+    document.getElementById('configApp').classList.remove('hidden');
+  } else if (section === 'testing') {
+    document.getElementById('configTesting').classList.remove('hidden');
+    initializeTestingSection();
   }
 }
 

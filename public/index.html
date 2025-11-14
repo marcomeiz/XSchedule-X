@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XSchedule-X</title>
     <link rel="stylesheet" href="style.css?v=awsm1">
+    <link rel="stylesheet" href="testing-styles.css?v=awsm1">
 </head>
 <body>
     <div class="app">
@@ -372,6 +373,17 @@
                             </svg>
                             Aplicación
                         </button>
+                        <button class="config-nav-item" onclick="switchConfigSection('testing', event)">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                                <path d="M9 12l2 2 4-4"></path>
+                            </svg>
+                            Banco de Pruebas
+                        </button>
                     </div>
 
                     <!-- Configuration Content -->
@@ -418,6 +430,14 @@
                                             Guardar Prompt
                                         </button>
                                         <button type="button" onclick="testPrompt()" class="btn-secondary">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                <polyline points="14 2 14 8 20 8"></polyline>
+                                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                <polyline points="10 9 9 9 8 9"></polyline>
+                                                <path d="M9 12l2 2 4-4"></path>
+                                            </svg>
                                             Probar Prompt
                                         </button>
                                     </div>
@@ -711,6 +731,75 @@
                         </div>
                     </div>
                 </div>
+
+                        <!-- Testing Section -->
+                        <div id="configTesting" class="config-section-content hidden">
+                            <div class="config-section-header">
+                                <h3>Banco de Pruebas de Prompts</h3>
+                                <p>Prueba tus prompts antes de usarlos en producción</p>
+                            </div>
+
+                            <div class="testing-container">
+                                <!-- Current Prompt Info -->
+                                <div class="testing-current-prompt">
+                                    <h4>Prompt Actual</h4>
+                                    <div class="current-prompt-info">
+                                        <div class="prompt-name" id="testingPromptName">Cargando...</div>
+                                        <div class="prompt-content" id="testingPromptContent">Cargando...</div>
+                                        <div class="prompt-variables" id="testingPromptVariables"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Quick Test -->
+                                <div class="testing-quick-test">
+                                    <h4>Prueba Rápida</h4>
+                                    <div class="quick-test-form">
+                                        <div class="form-group">
+                                            <label>Variables de Prueba</label>
+                                            <div id="testingVariablesInputs" class="testing-variables-inputs">
+                                                <!-- Variables inputs will be generated here -->
+                                            </div>
+                                        </div>
+                                        <div class="form-actions">
+                                            <button type="button" onclick="runQuickTest()" class="btn-primary">
+                                                Ejecutar Prueba
+                                            </button>
+                                            <button type="button" onclick="runBatchTest()" class="btn-secondary">
+                                                Prueba por Lotes (5)
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Test Results -->
+                                <div class="testing-results">
+                                    <h4>Resultados de Pruebas</h4>
+                                    <div class="test-results-header">
+                                        <div class="results-stats" id="testResultsStats">
+                                            <span class="stat">Total: <span id="totalTests">0</span></span>
+                                        <span class="stat">Éxitos: <span id="successTests">0</span></span>
+                                        <span class="stat">Fallidos: <span id="failedTests">0</span></span>
+                                        </div>
+                                        <div class="results-actions">
+                                            <button type="button" onclick="clearTestResults()" class="btn-text">
+                                                Limpiar Resultados
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="testResultsList" class="test-results-list">
+                                        <!-- Test results will appear here -->
+                                    </div>
+                                </div>
+
+                                <!-- Test History -->
+                                <div class="testing-history">
+                                    <h4>Historial de Pruebas</h4>
+                                    <div id="testHistoryList" class="test-history-list">
+                                        <!-- Test history will appear here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
                 <!-- Unsaved Changes Warning -->
                 <div id="unsavedChangesWarning" class="unsaved-changes-warning hidden">
