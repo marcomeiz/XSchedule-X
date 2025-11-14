@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XSchedule-X</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=awsm1">
 </head>
 <body>
     <div class="app">
@@ -84,6 +84,7 @@
                         <button class="nav-tab active" onclick="switchTab('timeline')">Timeline</button>
                         <button class="nav-tab" onclick="switchTab('published')">Publicados</button>
                         <button class="nav-tab" onclick="switchTab('analytics')">Analytics</button>
+                        <button class="nav-tab" onclick="switchTab('config')">Configuración</button>
                     </div>
                     <div class="progress-indicator">
                         <span id="progressText">0/12</span>
@@ -110,26 +111,17 @@
                 </div>
             </header>
 
+            <!-- Current Prompt Summary -->
+            <div id="currentPromptSummary" class="prompt-summary-bar">
+                <div class="prompt-summary-content">
+                    <span class="prompt-label">📝 Prompt activo:</span>
+                    <span id="currentPromptName" class="prompt-name">Cargando...</span>
+                    <span id="currentPromptContent" class="prompt-content"></span>
+                </div>
+            </div>
+
             <!-- Write Section -->
             <section class="write-section">
-                <div class="ai-buttons">
-                    <button class="btn-ai btn-ai-ops" onclick="generateAI('ops')">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-                            <path d="M2 17l10 5 10-5"></path>
-                            <path d="M2 12l10 5 10-5"></path>
-                        </svg>
-                        ✨ Generar OPS
-                    </button>
-                    <button class="btn-ai btn-ai-chaos" onclick="generateAI('chaos')">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                        </svg>
-                        🔥 Generar CHAOS
-                    </button>
-                </div>
                 <form id="postForm" class="post-form">
                     <div class="textarea-wrapper">
                         <textarea
@@ -141,6 +133,24 @@
                         ></textarea>
                         <div class="textarea-footer">
                             <span class="char-count" id="charCount">0 / 280</span>
+                            <div class="ai-inline-buttons">
+                                <button class="btn-ai btn-ai-ops" onclick="generateAI('ops')" type="button">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                                        <path d="M2 17l10 5 10-5"></path>
+                                        <path d="M2 12l10 5 10-5"></path>
+                                    </svg>
+                                    OPS
+                                </button>
+                                <button class="btn-ai btn-ai-chaos" onclick="generateAI('chaos')" type="button">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                                        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                                    </svg>
+                                    CHAOS
+                                </button>
+                            </div>
                             <button type="submit" class="btn-post">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -153,10 +163,19 @@
                 </form>
             </section>
 
-            <!-- Slots Grid -->
-            <section id="timelineTab" class="slots-section">
-                <div id="slotsGrid" class="slots-grid"></div>
+            <section class="queue-section" id="timelineTab">
+                <div class="queue-header">
+                    <h3>Siguientes</h3>
+                    <div class="queue-actions">
+                        <button id="queueShowMore" class="btn-secondary" type="button">Mostrar 10 más</button>
+                        <button id="queueHide" class="btn-secondary" type="button">Ocultar</button>
+                    </div>
+                </div>
+                <div id="queueList" class="queue-list"></div>
             </section>
+
+            <!-- Slots Grid -->
+            
 
             <!-- Published Tweets -->
             <section id="publishedTab" class="published-section hidden">
@@ -278,45 +297,438 @@
                     <p>Publica algunos tweets para ver analytics</p>
                 </div>
             </section>
-        </div>
 
-        <!-- AI Generation Modal -->
-        <div id="aiModal" class="modal hidden">
-            <div class="modal-overlay" onclick="closeAIModal()"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 id="aiModalTitle">✨ Variantes Generadas</h2>
-                    <button class="modal-close" onclick="closeAIModal()">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    </button>
-                </div>
-
-                <div id="aiModalLoading" class="modal-loading">
-                    <div class="loading-spinner"></div>
-                    <p>Generando variantes con IA...</p>
-                </div>
-
-                <div id="aiModalBody" class="modal-body hidden">
-                    <div class="modal-topic">
-                        <strong>Topic:</strong> <span id="aiTopicText"></span>
+            <!-- Configuration Section -->
+            <section id="configTab" class="config-section hidden">
+                <div class="config-header">
+                    <h2>Configuración</h2>
+                    <div class="config-actions">
+                        <button class="btn-secondary" onclick="exportConfig()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Exportar
+                        </button>
+                        <button class="btn-secondary" onclick="importConfig()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            Importar
+                        </button>
+                        <button class="btn-secondary" onclick="resetConfig()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="1 4 1 10 7 10"></polyline>
+                                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                            </svg>
+                            Restablecer
+                        </button>
+                        <button class="btn-primary" onclick="saveConfig()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                <polyline points="7 3 7 8 15 8"></polyline>
+                            </svg>
+                            Guardar
+                        </button>
                     </div>
-                    <div id="aiVariantsContainer" class="ai-variants"></div>
                 </div>
 
-                <div id="aiModalError" class="modal-error hidden">
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="8" x2="12" y2="12"></line>
-                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                    </svg>
-                    <p id="aiErrorText"></p>
-                    <button class="btn-secondary" onclick="closeAIModal()">Cerrar</button>
+                <div class="config-container">
+                    <!-- Configuration Navigation -->
+                    <div class="config-nav">
+                        <button class="config-nav-item active" onclick="switchConfigSection('prompts', event)">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                            Prompts
+                        </button>
+                        <button class="config-nav-item" onclick="switchConfigSection('llm', event)">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="9" y1="9" x2="15" y2="15"></line>
+                                <line x1="15" y1="9" x2="9" y2="15"></line>
+                            </svg>
+                            Modelo LLM
+                        </button>
+                        <button class="config-nav-item" onclick="switchConfigSection('api', event)">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                            </svg>
+                            APIs
+                        </button>
+                        <button class="config-nav-item" onclick="switchConfigSection('app', event)">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                            </svg>
+                            Aplicación
+                        </button>
+                    </div>
+
+                    <!-- Configuration Content -->
+                    <div class="config-content">
+                        <!-- Prompts Section -->
+                        <div id="configPrompts" class="config-section-content">
+                            <div class="config-section-header">
+                                <h3>Gestión de Prompts</h3>
+                                <p>Administra y personaliza los prompts para generación de contenido</p>
+                            </div>
+
+                            <div class="prompt-editor">
+                                <div class="prompt-form">
+                                    <div class="form-group">
+                                        <label for="promptName">Nombre del Prompt</label>
+                                        <input type="text" id="promptName" placeholder="Ej: Prompt de Marketing" />
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="promptContent">Contenido del Prompt</label>
+                                        <div class="rich-text-editor">
+                                            <textarea id="promptContent" placeholder="Escribe tu prompt aquí... Usa {variable} para variables dinámicas." rows="8"></textarea>
+                                            <div class="editor-toolbar">
+                                                <button type="button" onclick="insertVariable('topic')" class="toolbar-btn">{topic}</button>
+                                                <button type="button" onclick="insertVariable('style')" class="toolbar-btn">{style}</button>
+                                                <button type="button" onclick="insertVariable('tone')" class="toolbar-btn">{tone}</button>
+                                                <button type="button" onclick="insertVariable('length')" class="toolbar-btn">{length}</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>Variables Detectadas</label>
+                                        <div id="detectedVariables" class="detected-variables"></div>
+                                    </div>
+
+                                    <div class="form-actions">
+                                        <button type="button" onclick="saveCurrentPrompt()" class="btn-primary">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                                <polyline points="7 3 7 8 15 8"></polyline>
+                                            </svg>
+                                            Guardar Prompt
+                                        </button>
+                                        <button type="button" onclick="testPrompt()" class="btn-secondary">
+                                            Probar Prompt
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="prompt-history">
+                                    <div class="history-header">
+                                        <h4>Historial de Prompts</h4>
+                                        <button type="button" onclick="clearPromptHistory()" class="btn-text">
+                                            Limpiar Historial
+                                        </button>
+                                    </div>
+                                    <div id="promptHistoryList" class="history-list"></div>
+                                </div>
+                            </div>
+
+                            <div class="prompt-presets">
+                                <div class="presets-header">
+                                    <h4>Presets de Prompts</h4>
+                                    <button type="button" onclick="saveAsPreset()" class="btn-secondary">
+                                        Guardar Como Preset
+                                    </button>
+                                </div>
+                                <div id="promptPresetsList" class="presets-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- LLM Section -->
+                        <div id="configLLM" class="config-section-content hidden">
+                            <div class="config-section-header">
+                                <h3>Configuración del Modelo LLM</h3>
+                                <p>Selecciona y configura el modelo de lenguaje para generación de contenido</p>
+                            </div>
+
+                            <div class="llm-config">
+                                <div class="form-group">
+                                    <label for="llmProvider">Proveedor LLM</label>
+                                    <select id="llmProvider" onchange="updateLLMModels()">
+                                        <option value="openrouter">OpenRouter</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="anthropic">Anthropic</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="llmModel">Modelo</label>
+                                    <select id="llmModel">
+                                        <option value="anthropic/claude-3-sonnet">Claude 3 Sonnet</option>
+                                        <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
+                                        <option value="anthropic/claude-3-opus">Claude 3 Opus</option>
+                                        <option value="gpt-4">GPT-4</option>
+                                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="llmTemperature">Temperatura</label>
+                                        <input type="range" id="llmTemperature" min="0" max="2" step="0.1" value="0.7" />
+                                        <span class="range-value" id="temperatureValue">0.7</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="llmTopP">Top P</label>
+                                        <input type="range" id="llmTopP" min="0" max="1" step="0.1" value="1.0" />
+                                        <span class="range-value" id="topPValue">1.0</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="llmMaxTokens">Máximo de Tokens</label>
+                                    <input type="number" id="llmMaxTokens" min="100" max="4000" value="1000" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="llmApiKey">API Key</label>
+                                    <div class="input-with-toggle">
+                                        <input type="password" id="llmApiKey" placeholder="Ingresa tu API key" />
+                                        <button type="button" onclick="togglePasswordVisibility('llmApiKey')" class="btn-icon">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                                <circle cx="12" cy="12" r="3"></circle>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="llmEndpoint">Endpoint</label>
+                                    <input type="url" id="llmEndpoint" placeholder="https://api.openrouter.ai/v1/chat/completions" />
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="button" onclick="saveLLMConfig()" class="btn-primary">
+                                        Guardar Configuración LLM
+                                    </button>
+                                    <button type="button" onclick="testLLMConnection()" class="btn-secondary">
+                                        Probar Conexión
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="llm-presets">
+                                <h4>Configuraciones Predefinidas</h4>
+                                <div class="presets-grid">
+                                    <button type="button" onclick="loadLLMPreset('creative')" class="preset-card">
+                                        <h5>Creativo</h5>
+                                        <p>Temperatura alta para contenido más original</p>
+                                        <small>Temperatura: 1.2, Top P: 0.9</small>
+                                    </button>
+                                    <button type="button" onclick="loadLLMPreset('balanced')" class="preset-card">
+                                        <h5>Balanceado</h5>
+                                        <p>Configuración equilibrada para contenido general</p>
+                                        <small>Temperatura: 0.7, Top P: 1.0</small>
+                                    </button>
+                                    <button type="button" onclick="loadLLMPreset('focused')" class="preset-card">
+                                        <h5>Enfocado</h5>
+                                        <p>Temperatura baja para contenido más determinista</p>
+                                        <small>Temperatura: 0.3, Top P: 0.8</small>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- API Section -->
+                        <div id="configAPI" class="config-section-content hidden">
+                            <div class="config-section-header">
+                                <h3>Configuración de APIs</h3>
+                                <p>Configura las credenciales y endpoints de las APIs externas</p>
+                            </div>
+
+                            <div class="api-config">
+                                <div class="api-section">
+                                    <h4>Twitter API</h4>
+                                    <div class="form-group">
+                                        <label for="twitterApiKey">API Key</label>
+                                        <div class="input-with-toggle">
+                                            <input type="password" id="twitterApiKey" placeholder="Ingresa tu Twitter API Key" />
+                                            <button type="button" onclick="togglePasswordVisibility('twitterApiKey')" class="btn-icon">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                                    <circle cx="12" cy="12" r="3"></circle>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="twitterApiSecret">API Secret</label>
+                                        <div class="input-with-toggle">
+                                            <input type="password" id="twitterApiSecret" placeholder="Ingresa tu Twitter API Secret" />
+                                            <button type="button" onclick="togglePasswordVisibility('twitterApiSecret')" class="btn-icon">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                                    <circle cx="12" cy="12" r="3"></circle>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="twitterAccessToken">Access Token</label>
+                                        <div class="input-with-toggle">
+                                            <input type="password" id="twitterAccessToken" placeholder="Ingresa tu Twitter Access Token" />
+                                            <button type="button" onclick="togglePasswordVisibility('twitterAccessToken')" class="btn-icon">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                                    <circle cx="12" cy="12" r="3"></circle>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="twitterAccessSecret">Access Token Secret</label>
+                                        <div class="input-with-toggle">
+                                            <input type="password" id="twitterAccessSecret" placeholder="Ingresa tu Twitter Access Token Secret" />
+                                            <button type="button" onclick="togglePasswordVisibility('twitterAccessSecret')" class="btn-icon">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                                    <circle cx="12" cy="12" r="3"></circle>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="api-section">
+                                    <h4>Supabase</h4>
+                                    <div class="form-group">
+                                        <label for="supabaseUrl">URL del Proyecto</label>
+                                        <input type="url" id="supabaseUrl" placeholder="https://tuproyecto.supabase.co" />
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="supabaseAnonKey">Anon Key</label>
+                                        <div class="input-with-toggle">
+                                            <input type="password" id="supabaseAnonKey" placeholder="Ingresa tu Supabase Anon Key" />
+                                            <button type="button" onclick="togglePasswordVisibility('supabaseAnonKey')" class="btn-icon">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                                    <circle cx="12" cy="12" r="3"></circle>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="button" onclick="saveAPIConfig()" class="btn-primary">
+                                        Guardar Configuración de APIs
+                                    </button>
+                                    <button type="button" onclick="testAPIConnections()" class="btn-secondary">
+                                        Probar Conexiones
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- App Section -->
+                        <div id="configApp" class="config-section-content hidden">
+                            <div class="config-section-header">
+                                <h3>Configuración de la Aplicación</h3>
+                                <p>Personaliza el comportamiento general de la aplicación</p>
+                            </div>
+
+                            <div class="app-config">
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="autoSave" checked />
+                                        <span class="checkmark"></span>
+                                        Guardado automático
+                                    </label>
+                                    <span class="input-hint">Guarda cambios automáticamente cada 30 segundos</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="notifications" checked />
+                                        <span class="checkmark"></span>
+                                        Notificaciones
+                                    </label>
+                                    <span class="input-hint">Muestra notificaciones de cambios no guardados</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="appTheme">Tema</label>
+                                    <select id="appTheme">
+                                        <option value="light">Claro</option>
+                                        <option value="dark">Oscuro</option>
+                                        <option value="auto">Automático</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="appLanguage">Idioma</label>
+                                    <select id="appLanguage">
+                                        <option value="es">Español</option>
+                                        <option value="en">English</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="autoSaveInterval">Intervalo de Guardado Automático (segundos)</label>
+                                    <input type="number" id="autoSaveInterval" min="10" max="300" value="30" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="contentMaxLength">Longitud Máxima de Contenido</label>
+                                    <input type="number" id="contentMaxLength" min="50" max="500" value="280" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="contentMinLength">Longitud Mínima de Contenido</label>
+                                    <input type="number" id="contentMinLength" min="10" max="100" value="10" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="qualityThreshold">Umbral de Calidad</label>
+                                    <input type="range" id="qualityThreshold" min="0" max="1" step="0.1" value="0.7" />
+                                    <span class="range-value" id="qualityThresholdValue">0.7</span>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="button" onclick="saveAppConfig()" class="btn-primary">
+                                        Guardar Configuración de Aplicación
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
+
+                <!-- Unsaved Changes Warning -->
+                <div id="unsavedChangesWarning" class="unsaved-changes-warning hidden">
+                    <div class="warning-content">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                            <line x1="12" y1="9" x2="12" y2="13"></line>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                        <span>Tienes cambios no guardados</span>
+                        <button type="button" onclick="saveConfig()" class="btn-primary btn-small">Guardar</button>
+                        <button type="button" onclick="discardChanges()" class="btn-text">Descartar</button>
+                    </div>
+                </div>
+            </section>
         </div>
+
+        
     </div>
 
     <script src="app.js"></script>

@@ -4,25 +4,44 @@ import cron from 'node-cron';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { DateTime } from 'luxon';
+import configManager from './config.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Supabase client (sin auth, single-user)
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
-);
+// Initialize configuration manager
+await configManager.init();
 
-// Twitter client
-const twitterClient = new TwitterApi({
-  appKey: process.env.TWITTER_API_KEY,
-  appSecret: process.env.TWITTER_API_SECRET,
-  accessToken: process.env.TWITTER_ACCESS_TOKEN,
-  accessSecret: process.env.TWITTER_ACCESS_SECRET
-});
+const SUPA_URL = process.env.SUPABASE_URL;
+const SUPA_KEY = process.env.SUPABASE_ANON_KEY;
+const useSupabase = Boolean(SUPA_URL && SUPA_KEY);
+const supabase = useSupabase ? createClient(SUPA_URL, SUPA_KEY) : null;
+const memory = { timeline: null, slots: [] };
+
+// Asignar Supabase a global para que config.js pueda usarlo
+if (supabase) {
+  global.supabase = supabase;
+  console.log('✅ Supabase client asignado a global.supabase');
+} else {
+  console.log('⚠️  Supabase no configurado - usando almacenamiento local');
+}
+
+function getTwitterClient() {
+  const { TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET } = process.env;
+  if (!TWITTER_API_KEY || !TWITTER_API_SECRET || !TWITTER_ACCESS_TOKEN || !TWITTER_ACCESS_SECRET) return null;
+  try {
+    return new TwitterApi({
+      appKey: TWITTER_API_KEY,
+      appSecret: TWITTER_API_SECRET,
+      accessToken: TWITTER_ACCESS_TOKEN,
+      accessSecret: TWITTER_ACCESS_SECRET,
+    });
+  } catch (e) {
+    return null;
+  }
+}
 
 // Middleware
 app.use(express.json());
@@ -155,17 +174,19 @@ function calculateSlots(postsPerDayTarget, intervalHours, monthsAhead, workStart
 // Obtener timeline actual (solo hay uno)
 app.get('/api/timeline', async (req, res) => {
   try {
+    if (!useSupabase) {
+      const tl = memory.timeline;
+      if (!tl) return res.json({ timeline: null });
+      tl.slots.sort((a, b) => a.slot_index - b.slot_index);
+      return res.json({ timeline: tl });
+    }
     const { data: timeline } = await supabase
       .from('timelines')
       .select('*, slots(*)')
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
-
-    if (!timeline) {
-      return res.json({ timeline: null });
-    }
-
+    if (!timeline) return res.json({ timeline: null });
     timeline.slots.sort((a, b) => a.slot_index - b.slot_index);
     res.json({ timeline });
   } catch (error) {
@@ -178,62 +199,117 @@ app.get('/api/timeline', async (req, res) => {
 app.post('/api/timeline/create', async (req, res) => {
   try {
     const { totalSlots, intervalHours, monthsAhead, workStart, workEnd, timezone } = req.body;
+    
+    // Si no hay Supabase configurado o no se puede conectar, usar memoria
+    if (!useSupabase || !supabase) {
+      const slotsData = calculateSlots(
+        totalSlots,
+        intervalHours,
+        monthsAhead,
+        workStart,
+        workEnd,
+        timezone
+      );
+      const timeline = {
+        id: 'mem',
+        name: 'Mi Timeline',
+        total_slots: totalSlots,
+        interval_hours: intervalHours,
+        work_start: workStart,
+        work_end: workEnd,
+        timezone,
+      };
+      memory.timeline = timeline;
+      memory.slots = slotsData.map((slot, i) => ({
+        id: i + 1,
+        timeline_id: 'mem',
+        slot_index: slot.slot_index,
+        scheduled_time: slot.scheduled_time,
+        status: slot.status,
+        content: slot.content,
+        filled_at: null,
+        published_at: null,
+        tweet_id: null,
+        error_message: null,
+      }));
+      const tl = { ...timeline, slots: [...memory.slots] };
+      return res.json({ success: true, timeline: tl, message: 'Timeline creado exitosamente (modo memoria)', preservedCount: 0, publishedCount: 0 });
+    } else {
+      // Si hay Supabase disponible, usar la lógica de base de datos
+      // PRESERVAR publicaciones del timeline anterior
+      let existingPosts = [];
+      let publishedSlots = [];
 
-    // PRESERVAR publicaciones del timeline anterior
-    let existingPosts = [];
-    let publishedSlots = [];
+      const { data: oldTimeline } = await supabase
+        .from('timelines')
+        .select('id')
+        .limit(1)
+        .single();
 
-    const { data: oldTimeline } = await supabase
-      .from('timelines')
-      .select('id')
-      .limit(1)
-      .single();
+      if (oldTimeline) {
+        // Obtener slots PUBLICADOS (no se tocan nunca)
+        const { data: published } = await supabase
+          .from('slots')
+          .select('*')
+          .eq('timeline_id', oldTimeline.id)
+          .eq('status', 'published')
+          .order('slot_index', { ascending: true });
 
-    if (oldTimeline) {
-      // Obtener slots PUBLICADOS (no se tocan nunca)
-      const { data: published } = await supabase
-        .from('slots')
-        .select('*')
-        .eq('timeline_id', oldTimeline.id)
-        .eq('status', 'published')
-        .order('slot_index', { ascending: true });
+        if (published && published.length > 0) {
+          publishedSlots = published;
+          console.log(`🔒 ${published.length} slots publicados permanecen intocables`);
+        }
 
-      if (published && published.length > 0) {
-        publishedSlots = published;
-        console.log(`🔒 ${published.length} slots publicados permanecen intocables`);
+        // Obtener slots llenos ANTES de borrar (para preservar)
+        const { data: filledSlots } = await supabase
+          .from('slots')
+          .select('content, filled_at')
+          .eq('timeline_id', oldTimeline.id)
+          .eq('status', 'filled')
+          .order('slot_index', { ascending: true });
+
+        if (filledSlots && filledSlots.length > 0) {
+          existingPosts = filledSlots.map(s => s.content);
+          console.log(`📦 Preservando ${existingPosts.length} publicaciones pendientes...`);
+        }
+
+        // Borrar SOLO los slots no publicados (empty, filled, y failed)
+        await supabase
+          .from('slots')
+          .delete()
+          .eq('timeline_id', oldTimeline.id)
+          .in('status', ['empty', 'filled', 'failed']);
+
+        // Actualizar el timeline existente (no crear uno nuevo)
+        const { data: timeline, error: timelineError } = await supabase
+          .from('timelines')
+          .update({
+            total_slots: totalSlots,
+            interval_hours: intervalHours,
+            work_start: workStart,
+            work_end: workEnd,
+            timezone
+          })
+          .eq('id', oldTimeline.id)
+          .select()
+          .single();
+
+        if (timelineError) throw timelineError;
+
+        return await createOrUpdateTimelineSlots(timeline, totalSlots, intervalHours, monthsAhead, workStart, workEnd, timezone, existingPosts, publishedSlots, res);
       }
 
-      // Obtener slots llenos ANTES de borrar (para preservar)
-      const { data: filledSlots } = await supabase
-        .from('slots')
-        .select('content, filled_at')
-        .eq('timeline_id', oldTimeline.id)
-        .eq('status', 'filled')
-        .order('slot_index', { ascending: true });
-
-      if (filledSlots && filledSlots.length > 0) {
-        existingPosts = filledSlots.map(s => s.content);
-        console.log(`📦 Preservando ${existingPosts.length} publicaciones pendientes...`);
-      }
-
-      // Borrar SOLO los slots no publicados (empty, filled, y failed)
-      await supabase
-        .from('slots')
-        .delete()
-        .eq('timeline_id', oldTimeline.id)
-        .in('status', ['empty', 'filled', 'failed']);
-
-      // Actualizar el timeline existente (no crear uno nuevo)
+      // Si no hay timeline previo, crear uno nuevo
       const { data: timeline, error: timelineError } = await supabase
         .from('timelines')
-        .update({
+        .insert({
+          name: 'Mi Timeline',
           total_slots: totalSlots,
           interval_hours: intervalHours,
           work_start: workStart,
           work_end: workEnd,
           timezone
         })
-        .eq('id', oldTimeline.id)
         .select()
         .single();
 
@@ -241,24 +317,6 @@ app.post('/api/timeline/create', async (req, res) => {
 
       return await createOrUpdateTimelineSlots(timeline, totalSlots, intervalHours, monthsAhead, workStart, workEnd, timezone, existingPosts, publishedSlots, res);
     }
-
-    // Si no hay timeline previo, crear uno nuevo
-    const { data: timeline, error: timelineError } = await supabase
-      .from('timelines')
-      .insert({
-        name: 'Mi Timeline',
-        total_slots: totalSlots,
-        interval_hours: intervalHours,
-        work_start: workStart,
-        work_end: workEnd,
-        timezone
-      })
-      .select()
-      .single();
-
-    if (timelineError) throw timelineError;
-
-    return await createOrUpdateTimelineSlots(timeline, totalSlots, intervalHours, monthsAhead, workStart, workEnd, timezone, existingPosts, publishedSlots, res);
   } catch (error) {
     console.error('Error al crear/actualizar timeline:', error);
     res.status(500).json({ error: error.message });
@@ -334,7 +392,22 @@ async function createOrUpdateTimelineSlots(timeline, totalSlots, intervalHours, 
 // Agregar publicación al próximo slot vacío
 app.post('/api/timeline/add-post', async (req, res) => {
   try {
-    const { content } = req.body;
+    const { content, quality_score } = req.body;
+    if (!useSupabase) {
+      if (!memory.timeline) return res.status(404).json({ error: 'No hay timeline activo' });
+      const now = DateTime.utc();
+      const emptySlot = memory.slots
+        .filter(s => s.status === 'empty')
+        .filter(s => DateTime.fromISO(s.scheduled_time).toUTC() >= now)
+        .sort((a, b) => a.slot_index - b.slot_index)[0];
+      if (!emptySlot) return res.status(400).json({ error: 'No hay slots disponibles en el futuro' });
+      emptySlot.status = 'filled';
+      emptySlot.content = content;
+      emptySlot.filled_at = new Date().toISOString();
+      if (typeof quality_score === 'number') emptySlot.quality_score = quality_score;
+      const tl = { ...memory.timeline, slots: [...memory.slots].sort((a, b) => a.slot_index - b.slot_index) };
+      return res.json({ success: true, timeline: tl });
+    }
 
     // Obtener timeline actual
     const { data: timeline } = await supabase
@@ -348,23 +421,34 @@ app.post('/api/timeline/add-post', async (req, res) => {
       return res.status(404).json({ error: 'No hay timeline activo' });
     }
 
-    // Encontrar próximo slot vacío EN EL FUTURO
-    const now = DateTime.utc();
-    const { data: emptySlot } = await supabase
-      .from('slots')
-      .select('*')
-      .eq('timeline_id', timeline.id)
-      .eq('status', 'empty')
-      .gte('scheduled_time', now.toISO()) // Solo slots en el futuro
-      .order('slot_index', { ascending: true })
-      .limit(1)
-      .single();
+  // Encontrar próximo slot vacío EN EL FUTURO
+  const now = DateTime.utc();
+  const { data: emptySlot } = await supabase
+    .from('slots')
+    .select('*')
+    .eq('timeline_id', timeline.id)
+    .eq('status', 'empty')
+    .gte('scheduled_time', now.toISO()) // Solo slots en el futuro
+    .order('slot_index', { ascending: true })
+    .limit(1)
+    .single();
 
     if (!emptySlot) {
       return res.status(400).json({ error: 'No hay slots disponibles en el futuro' });
     }
 
-    // Actualizar slot
+  // Actualizar slot (intenta guardar quality_score si existe la columna)
+  try {
+    await supabase
+      .from('slots')
+      .update({
+        status: 'filled',
+        content,
+        filled_at: new Date().toISOString(),
+        quality_score: typeof req.body.quality_score === 'number' ? req.body.quality_score : null,
+      })
+      .eq('id', emptySlot.id);
+  } catch (err) {
     await supabase
       .from('slots')
       .update({
@@ -373,6 +457,7 @@ app.post('/api/timeline/add-post', async (req, res) => {
         filled_at: new Date().toISOString()
       })
       .eq('id', emptySlot.id);
+  }
 
     // Devolver timeline actualizado
     const { data: updatedTimeline } = await supabase
@@ -453,7 +538,31 @@ app.delete('/api/timeline/slots/:slotId', async (req, res) => {
 // Shuffle: mezclar aleatoriamente el contenido de los slots llenos
 app.post('/api/timeline/shuffle', async (req, res) => {
   try {
-    // Obtener timeline actual
+    if (!useSupabase) {
+      if (!memory.timeline) {
+        return res.status(404).json({ error: 'No hay timeline activo' });
+      }
+      const filledSlots = memory.slots
+        .filter(s => s.status === 'filled')
+        .sort((a, b) => a.slot_index - b.slot_index);
+      if (!filledSlots || filledSlots.length < 2) {
+        return res.status(400).json({ error: 'Necesitas al menos 2 publicaciones para mezclar' });
+      }
+      const contents = filledSlots.map(s => s.content);
+      for (let i = contents.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [contents[i], contents[j]] = [contents[j], contents[i]];
+      }
+      for (let i = 0; i < filledSlots.length; i++) {
+        filledSlots[i].content = contents[i];
+      }
+      const updatedTimeline = {
+        ...memory.timeline,
+        slots: [...memory.slots].sort((a, b) => a.slot_index - b.slot_index),
+      };
+      return res.json({ success: true, timeline: updatedTimeline });
+    }
+
     const { data: timeline } = await supabase
       .from('timelines')
       .select('id')
@@ -465,7 +574,6 @@ app.post('/api/timeline/shuffle', async (req, res) => {
       return res.status(404).json({ error: 'No hay timeline activo' });
     }
 
-    // Obtener todos los slots llenos
     const { data: filledSlots } = await supabase
       .from('slots')
       .select('*')
@@ -477,16 +585,11 @@ app.post('/api/timeline/shuffle', async (req, res) => {
       return res.status(400).json({ error: 'Necesitas al menos 2 publicaciones para mezclar' });
     }
 
-    // Extraer contenidos
     const contents = filledSlots.map(s => s.content);
-
-    // Shuffle Fisher-Yates
     for (let i = contents.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [contents[i], contents[j]] = [contents[j], contents[i]];
     }
-
-    // Actualizar cada slot con el contenido mezclado
     for (let i = 0; i < filledSlots.length; i++) {
       await supabase
         .from('slots')
@@ -494,15 +597,12 @@ app.post('/api/timeline/shuffle', async (req, res) => {
         .eq('id', filledSlots[i].id);
     }
 
-    // Devolver timeline actualizado
     const { data: updatedTimeline } = await supabase
       .from('timelines')
       .select('*, slots(*)')
       .eq('id', timeline.id)
       .single();
-
     updatedTimeline.slots.sort((a, b) => a.slot_index - b.slot_index);
-
     res.json({ success: true, timeline: updatedTimeline });
   } catch (error) {
     console.error('Error al mezclar:', error);
@@ -544,9 +644,11 @@ app.get('/api/published', async (req, res) => {
 
     // Obtener métricas de Twitter para cada tweet
     const tweetIds = publishedSlots.map(s => s.tweet_id);
+    const client = getTwitterClient();
 
     try {
-      const tweets = await twitterClient.readOnly.v2.tweets(tweetIds, {
+      if (!client) throw new Error('Twitter client not configured');
+      const tweets = await client.readOnly.v2.tweets(tweetIds, {
         'tweet.fields': ['public_metrics', 'created_at']
       });
 
@@ -666,11 +768,12 @@ app.get('/api/analytics', async (req, res) => {
 
     // Obtener métricas de Twitter API para cada tweet
     const tweetIds = publishedSlots.map(s => s.tweet_id);
-
-    // Twitter API v2: obtener tweets con métricas
-    const tweets = await twitterClient.readOnly.v2.tweets(tweetIds, {
-      'tweet.fields': ['public_metrics', 'created_at', 'author_id'],
-    });
+    const client = getTwitterClient();
+    const tweets = client
+      ? await client.readOnly.v2.tweets(tweetIds, {
+          'tweet.fields': ['public_metrics', 'created_at', 'author_id'],
+        })
+      : { data: [] };
 
     // Mapear métricas con slots
     const tweetsWithMetrics = publishedSlots.map(slot => {
@@ -862,7 +965,7 @@ app.get('/api/analytics', async (req, res) => {
 // ===== AUTO-PUBLISHER =====
 async function checkAndPublishScheduledPosts() {
   try {
-    const now = DateTime.utc(); // Usar UTC para comparaciones
+    const now = DateTime.utc();
 
     const { data: slots } = await supabase
       .from('slots')
@@ -888,8 +991,10 @@ async function checkAndPublishScheduledPosts() {
 
       // Step 1: Try to publish to Twitter
       try {
+        const client = getTwitterClient();
+        if (!client) throw new Error('Twitter client not configured');
         console.log(`📤 Intentando publicar: "${slot.content.substring(0, 50)}..."`);
-        const tweet = await twitterClient.readWrite.v2.tweet(slot.content);
+        const tweet = await client.readWrite.v2.tweet(slot.content);
 
         // Verificar que obtuvimos un tweet ID válido
         if (tweet && tweet.data && tweet.data.id) {
@@ -917,7 +1022,9 @@ async function checkAndPublishScheduledPosts() {
             await new Promise(resolve => setTimeout(resolve, 3000));
 
             // Buscar el tweet en el timeline del usuario
-            const userTweets = await twitterClient.readOnly.v2.userTimeline('101048650', {
+            const client2 = getTwitterClient();
+            if (!client2) throw new Error('Twitter client not configured');
+            const userTweets = await client2.readOnly.v2.userTimeline('101048650', {
               max_results: 10,
               'tweet.fields': ['created_at', 'text']
             });
@@ -1014,8 +1121,564 @@ async function checkAndPublishScheduledPosts() {
 // Verificar cada minuto
 cron.schedule('* * * * *', checkAndPublishScheduledPosts);
 
+// ===== CONFIGURATION MANAGEMENT =====
+
+// Initialize default prompts on startup
+async function initializeDefaultPrompts() {
+  try {
+    // Check if any prompts exist
+    const { data: existingPrompts, error } = await supabase
+      .from('prompts')
+      .select('id')
+      .limit(1);
+    
+    if (error) {
+      console.error('Error checking existing prompts:', error);
+      return;
+    }
+    
+    // No default system prompt - users must configure their own prompts
+  } catch (error) {
+    console.error('Error initializing default prompts:', error);
+  }
+}
+
+// Get current configuration
+app.get('/api/config', async (req, res) => {
+  try {
+    const config = configManager.getAll();
+    // Remove sensitive data from response
+    const safeConfig = {
+      ...config,
+      llm: {
+        ...config.llm,
+        apiKey: config.llm.apiKey ? '***' : ''
+      },
+      api: {
+        twitter: {
+          apiKey: config.api.twitter.apiKey ? '***' : '',
+          apiSecret: config.api.twitter.apiSecret ? '***' : '',
+          accessToken: config.api.twitter.accessToken ? '***' : '',
+          accessSecret: config.api.twitter.accessSecret ? '***' : ''
+        },
+        supabase: {
+          url: config.api.supabase.url,
+          anonKey: config.api.supabase.anonKey ? '***' : ''
+        }
+      }
+    };
+    res.json({ 
+      success: true, 
+      config: safeConfig,
+      storage_type: useSupabase ? 'supabase' : 'local'
+    });
+  } catch (error) {
+    console.error('Error getting config:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update configuration
+app.post('/api/config', async (req, res) => {
+  try {
+    const { path, value } = req.body;
+    if (!path) {
+      return res.status(400).json({ success: false, error: 'Path is required' });
+    }
+    
+    configManager.set(path, value);
+    res.json({ success: true, message: 'Configuration updated' });
+  } catch (error) {
+    console.error('Error updating config:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Check for unsaved changes (must come before /api/config/:section)
+app.get('/api/config/status', async (req, res) => {
+  try {
+    const hasUnsavedChanges = configManager.hasUnsavedChanges();
+    res.json({ success: true, hasUnsavedChanges });
+  } catch (error) {
+    console.error('Error checking config status:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Export configuration (must come before /api/config/:section)
+app.get('/api/config/export', async (req, res) => {
+  try {
+    const configJson = await configManager.exportConfig();
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="xschedule-config.json"');
+    res.send(configJson);
+  } catch (error) {
+    console.error('Error exporting config:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get configuration by section
+app.get('/api/config/:section', async (req, res) => {
+  try {
+    const { section } = req.params;
+    const config = configManager.get(section);
+    
+    if (config === undefined) {
+      return res.status(404).json({ success: false, error: 'Section not found' });
+    }
+    
+    res.json({ success: true, config });
+  } catch (error) {
+    console.error('Error getting config section:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Save prompt
+app.post('/api/config/prompts', async (req, res) => {
+  try {
+    const promptData = req.body;
+    
+    // If this prompt should be active, deactivate all others first
+    if (promptData.is_active) {
+      const { error: deactivateError } = await supabase
+        .from('prompts')
+        .update({ is_active: false })
+        .neq('id', promptData.id || '');
+      
+      if (deactivateError) {
+        console.error('Error deactivating other prompts:', deactivateError);
+      }
+    }
+    
+    // Save to Supabase - use proper schema
+    const promptRecord = {
+      id: promptData.id,
+      name: promptData.name,
+      content: promptData.content,
+      variables: promptData.variables || [],
+      is_active: promptData.is_active || false,
+      updated_at: new Date().toISOString()
+    };
+    
+    // Only set created_at for new records
+    if (!promptData.id) {
+      promptRecord.created_at = new Date().toISOString();
+    }
+    
+    const { data: prompt, error } = await supabase
+      .from('prompts')
+      .upsert(promptRecord)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error saving prompt to Supabase:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    
+    // If this prompt is active, update the local configuration
+    if (promptData.is_active) {
+      configManager.set('prompts.current', {
+        id: prompt.id,
+        name: prompt.name,
+        content: prompt.content,
+        variables: prompt.variables
+      });
+      console.log(`[CONFIG] Updated current prompt: ${prompt.name}`);
+    }
+    
+    res.json({ success: true, prompt });
+  } catch (error) {
+    console.error('Error saving prompt:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get prompt history
+app.get('/api/config/prompts/history', async (req, res) => {
+  try {
+    const history = configManager.getPromptHistory();
+    res.json({ success: true, history });
+  } catch (error) {
+    console.error('Error getting prompt history:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Load prompt from history
+app.post('/api/config/prompts/history/:promptId', async (req, res) => {
+  try {
+    const { promptId } = req.params;
+    const prompt = configManager.loadPromptFromHistory(promptId);
+    
+    if (!prompt) {
+      return res.status(404).json({ success: false, error: 'Prompt not found' });
+    }
+    
+    res.json({ success: true, prompt });
+  } catch (error) {
+    console.error('Error loading prompt from history:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get prompt presets
+app.get('/api/config/prompts/presets', async (req, res) => {
+  try {
+    const presets = configManager.getPromptPresets();
+    res.json({ success: true, presets });
+  } catch (error) {
+    console.error('Error getting prompt presets:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get current prompt
+app.get('/api/config/prompts/current', async (req, res) => {
+  try {
+    // Get the current prompt from configManager
+    const currentPrompt = await configManager.getCurrentPrompt();
+    res.json({ success: true, prompt: currentPrompt });
+  } catch (error) {
+    console.error('Error getting current prompt:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Set current prompt
+app.post('/api/config/prompts/current/:promptId', async (req, res) => {
+  try {
+    const { promptId } = req.params;
+    
+    // First, deactivate all prompts
+    const { error: deactivateError } = await supabase
+      .from('prompts')
+      .update({ is_active: false })
+      .eq('is_active', true); // Only update currently active prompts
+    
+    if (deactivateError) {
+      console.error('Error deactivating prompts:', deactivateError);
+      return res.status(500).json({ success: false, error: deactivateError.message });
+    }
+    
+    // Activate the selected prompt
+    const { data: prompt, error: activateError } = await supabase
+      .from('prompts')
+      .update({ is_active: true })
+      .eq('id', promptId)
+      .select()
+      .single();
+    
+    if (activateError) {
+      console.error('Error activating prompt:', activateError);
+      return res.status(500).json({ success: false, error: activateError.message });
+    }
+    
+    if (!prompt) {
+      return res.status(404).json({ success: false, error: 'Prompt not found' });
+    }
+    
+    // Update local configuration
+    configManager.set('prompts.current', {
+      id: prompt.id,
+      name: prompt.name,
+      content: prompt.content,
+      variables: prompt.variables
+    });
+    
+    console.log(`[CONFIG] Set current prompt: ${prompt.name}`);
+    
+    res.json({ success: true, prompt });
+  } catch (error) {
+    console.error('Error setting current prompt:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get all prompts
+app.get('/api/config/prompts', async (req, res) => {
+  try {
+    if (!useSupabase) {
+      // Fallback to local config
+      const config = configManager.getAll();
+      return res.json({ 
+        success: true, 
+        prompts: config.prompts || {},
+        storage_type: 'local'
+      });
+    }
+    
+    const { data: prompts, error } = await supabase
+      .from('prompts')
+      .select('*')
+      .order('updated_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error getting prompts from Supabase:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    
+    // Convert array to object format for frontend compatibility
+    const promptsObject = {};
+    prompts.forEach(prompt => {
+      promptsObject[prompt.id] = prompt;
+    });
+    
+    res.json({ 
+      success: true, 
+      prompts: promptsObject,
+      storage_type: 'supabase'
+    });
+  } catch (error) {
+    console.error('Error getting prompts:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Add prompt preset
+app.post('/api/config/prompts/presets', async (req, res) => {
+  try {
+    const presetData = req.body;
+    const preset = configManager.addPromptPreset(presetData);
+    res.json({ success: true, preset });
+  } catch (error) {
+    console.error('Error adding prompt preset:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Remove prompt preset
+app.delete('/api/config/prompts/presets/:presetId', async (req, res) => {
+  try {
+    const { presetId } = req.params;
+    const removed = configManager.removePromptPreset(presetId);
+    
+    if (!removed) {
+      return res.status(404).json({ success: false, error: 'Preset not found' });
+    }
+    
+    res.json({ success: true, removed });
+  } catch (error) {
+    console.error('Error removing prompt preset:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete individual prompt
+app.delete('/api/config/prompts/:promptId', async (req, res) => {
+  try {
+    const { promptId } = req.params;
+    
+    // Delete from Supabase
+    const { error } = await supabase
+      .from('prompts')
+      .delete()
+      .eq('id', promptId);
+    
+    if (error) {
+      console.error('Error deleting prompt from Supabase:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    
+    res.json({ success: true, message: 'Prompt deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting prompt:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Import configuration
+app.post('/api/config/import', async (req, res) => {
+  try {
+    const { config } = req.body;
+    if (!config) {
+      return res.status(400).json({ success: false, error: 'Config data is required' });
+    }
+    
+    await configManager.importConfig(JSON.stringify(config));
+    res.json({ success: true, message: 'Configuration imported successfully' });
+  } catch (error) {
+    console.error('Error importing config:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// TEMPORARY: Create prompts table endpoint
+app.post('/api/admin/create-prompts-table', async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(500).json({ success: false, error: 'Supabase not available' });
+    }
+
+    console.log('Creating prompts table...');
+    
+    // Use the server's own Supabase connection to create the table
+    // This will work because the server is already connected to Supabase
+    try {
+      // Try to query the prompts table first to see if it exists
+      const { data: existingPrompts, error: checkError } = await supabase
+        .from('prompts')
+        .select('*')
+        .limit(1);
+      
+      if (!checkError) {
+        console.log('✅ Prompts table already exists!');
+        return res.json({ success: true, message: 'Prompts table already exists' });
+      }
+      
+      // If we get here, the table doesn't exist
+      console.log('Table does not exist, attempting to create...');
+      
+      // Since we can't execute raw SQL, let's try to use the Supabase JS client
+      // to create the table by using the underlying connection
+      const { data: tableData, error: tableError } = await supabase
+        .from('information_schema.tables')
+        .select('table_name')
+        .eq('table_schema', 'public')
+        .eq('table_name', 'prompts');
+      
+      if (tableError) {
+        console.error('Error checking table existence:', tableError);
+        return res.status(500).json({ success: false, error: 'Cannot check table existence' });
+      }
+      
+      if (tableData && tableData.length > 0) {
+        console.log('Table exists in information_schema');
+        return res.json({ success: true, message: 'Table exists in information_schema' });
+      }
+      
+      // Table doesn't exist and we can't create it via API
+      // We need to use the Supabase dashboard or SQL editor
+      console.error('Cannot create table via API. Please use Supabase dashboard.');
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Cannot create table via API. Please use Supabase SQL editor with this SQL:\n\n' +
+          'CREATE TABLE IF NOT EXISTS public.prompts (\n' +
+          '  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n' +
+          '  name TEXT NOT NULL,\n' +
+          '  content TEXT NOT NULL,\n' +
+          '  is_active BOOLEAN DEFAULT false,\n' +
+          '  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n' +
+          '  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n' +
+          '  UNIQUE(name)\n' +
+          ');\n\n' +
+          'GRANT SELECT ON public.prompts TO anon;\n' +
+          'GRANT ALL ON public.prompts TO authenticated;'
+      });
+      
+    } catch (error) {
+      console.error('Error in table creation attempt:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+    
+  } catch (error) {
+    console.error('Unexpected error creating table:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// AI Generation proxy endpoint with prompt injection
+app.post('/api/generate', async (req, res) => {
+  try {
+    const { mode, prompt, promptId, promptVariables } = req.body;
+    
+    // Get the appropriate prompt based on mode and configuration
+    let finalPrompt = prompt;
+    
+    if (!finalPrompt) {
+      // Try to get mode-specific prompt from Supabase first
+      const modePrompt = await configManager.getPromptByMode(mode);
+      if (modePrompt && modePrompt.content) {
+        finalPrompt = modePrompt.content;
+        console.log(`Using ${mode}-specific prompt from Supabase: ${modePrompt.name}`);
+      } else {
+        // Fallback to current configured prompt
+        const currentPrompt = await configManager.getCurrentPrompt();
+        if (currentPrompt && currentPrompt.content) {
+          finalPrompt = currentPrompt.content;
+        }
+      }
+    }
+    
+    // Replace variables in the prompt if promptVariables are provided
+    if (finalPrompt && promptVariables && typeof promptVariables === 'object') {
+      Object.keys(promptVariables).forEach(key => {
+        const placeholder = `{${key}}`;
+        const value = String(promptVariables[key]);
+        // Escape special regex characters in the placeholder
+        const escapedPlaceholder = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        finalPrompt = finalPrompt.replace(new RegExp(escapedPlaceholder, 'g'), value);
+      });
+      console.log(`Variables replaced in prompt: ${JSON.stringify(promptVariables)}`);
+    }
+    
+    // Prepare the request for Marco Voice Engine
+    const requestBody = {
+      mode,
+      prompt: finalPrompt || undefined // Only include if we have a prompt
+    };
+    
+    // Log the prompt being used for debugging
+    console.log(`AI Generation request - Mode: ${mode}, Prompt ID: ${promptId || 'default'}, Has custom prompt: ${!!finalPrompt}`);
+    console.log(`Final prompt being sent to Marco Voice Engine: ${finalPrompt ? finalPrompt.substring(0, 100) + '...' : 'none'}`);
+    
+    // Forward to Marco Voice Engine
+    const response = await fetch('https://marco-voice-engine.fly.dev/generate', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'User-Agent': 'XSchedule-X/1.0'
+      },
+      body: JSON.stringify(requestBody)
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('Marco Voice Engine error:', errorData);
+      return res.status(response.status).json({ 
+        success: false, 
+        error: `Marco Voice Engine error: ${errorData}` 
+      });
+    }
+    
+    const data = await response.json();
+    
+    // Log successful generation
+    console.log(`AI Generation successful - Received ${data.variants?.length || 0} variants`);
+    
+    res.json(data);
+    
+  } catch (error) {
+    console.error('AI Generation proxy error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: `Generation error: ${error.message}` 
+    });
+  }
+});
+
+// Reset to defaults
+app.post('/api/config/reset', async (req, res) => {
+  try {
+    await configManager.resetToDefaults();
+    res.json({ success: true, message: 'Configuration reset to defaults' });
+  } catch (error) {
+    console.error('Error resetting config:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ===== INICIAR SERVIDOR =====
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 XSchedule-X corriendo en http://localhost:${PORT}`);
   console.log('📅 Sistema de publicación automática activo\n');
+  
+  // Initialize default prompts after server is running and Supabase is configured
+  if (supabase) {
+    initializeDefaultPrompts();
+  } else {
+    console.log('⚠️  Supabase no configurado - los prompts se almacenarán localmente');
+  }
 });

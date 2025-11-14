@@ -1,0 +1,65 @@
+{
+  "llm": {
+    "provider": "openrouter",
+    "model": "anthropic/claude-3-sonnet",
+    "temperature": 0.7,
+    "top_p": 1,
+    "max_tokens": 1000,
+    "apiKey": "",
+    "endpoint": "https://api.openrouter.ai/v1/chat/completions"
+  },
+  "prompts": {
+    "current": null,
+    "history": [],
+    "presets": []
+  },
+  "api": {
+    "twitter": {
+      "apiKey": "",
+      "apiSecret": "",
+      "accessToken": "",
+      "accessSecret": "",
+      "bearerToken": ""
+    },
+    "supabase": {
+      "url": "",
+      "anonKey": "",
+      "serviceKey": ""
+    }
+  },
+  "app": {
+    "autoSave": true,
+    "autoSaveInterval": 30,
+    "notifications": true,
+    "theme": "light",
+    "language": "es",
+    "contentMaxLength": 280,
+    "contentMinLength": 10,
+    "qualityThreshold": 0.7
+  },
+  "content": {
+    "maxLength": 280,
+    "minLength": 10,
+    "qualityThreshold": 0.7,
+    "enableAI": true,
+    "variants": {
+      "ops": {
+        "enabled": true,
+        "description": "Operational and business-focused content"
+      },
+      "chaos": {
+        "enabled": true,
+        "description": "Creative and experimental content"
+      }
+    }
+  },
+  "timeline": {
+    "defaultSlots": 12,
+    "defaultInterval": 0.5,
+    "defaultMonths": 1,
+    "defaultWorkStart": "09:00",
+    "defaultWorkEnd": "18:00",
+    "defaultTimezone": "America/Mexico_City"
+  },
+  "llmPresets": {}
+}

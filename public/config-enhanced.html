@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XSchedule-X - Configuración Mejorada</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="enhanced-styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1><i class="fas fa-cog"></i> Configuración de XSchedule-X</h1>
+            <div class="header-actions">
+                <button id="saveConfigBtn" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Guardar Configuración
+                </button>
+                <button id="exportConfigBtn" class="btn btn-secondary">
+                    <i class="fas fa-download"></i> Exportar
+                </button>
+                <button id="importConfigBtn" class="btn btn-secondary">
+                    <i class="fas fa-upload"></i> Importar
+                </button>
+                <a href="/" class="btn btn-outline">
+                    <i class="fas fa-arrow-left"></i> Volver
+                </a>
+            </div>
+        </header>
+
+        <!-- Storage Type Indicator -->
+        <div id="storageIndicator" class="storage-indicator local">
+            <i class="fas fa-database icon"></i>
+            <span id="storageText">Almacenamiento Local</span>
+        </div>
+
+        <!-- Current Prompt Display -->
+        <div id="currentPromptDisplay" class="current-prompt-info" style="display: none;">
+            <!-- Will be populated by JavaScript -->
+        </div>
+
+        <!-- Configuration Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="prompts">
+                <i class="fas fa-comments"></i> Gestión de Prompts
+            </button>
+            <button class="tab-btn" data-tab="llm">
+                <i class="fas fa-brain"></i> Configuración LLM
+            </button>
+            <button class="tab-btn" data-tab="api">
+                <i class="fas fa-key"></i> APIs
+            </button>
+            <button class="tab-btn" data-tab="app">
+                <i class="fas fa-cog"></i> Aplicación
+            </button>
+            <button class="tab-btn" data-tab="content">
+                <i class="fas fa-edit"></i> Contenido
+            </button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Prompts Tab -->
+            <div id="prompts" class="tab-pane active">
+                <div class="config-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-comments"></i> Gestión de Prompts Mejorada</h2>
+                        <p class="section-description">Administra tus prompts de forma segura con almacenamiento en la nube</p>
+                    </div>
+
+                    <!-- Prompt Editor -->
+                    <div id="promptEditor" class="prompt-editor hidden">
+                        <div class="form-group">
+                            <label for="promptName">Nombre del Prompt</label>
+                            <input type="text" id="promptName" class="form-control" placeholder="Ej: Prompt de Negocios">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="promptContent">Contenido del Prompt</label>
+                            <textarea id="promptContent" class="form-control" rows="6" 
+                                placeholder="Escribe tu prompt aquí... Usa {variable} para variables."></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="promptVariables">Variables (separadas por comas)</label>
+                            <input type="text" id="promptVariables" class="form-control" 
+                                placeholder="Ej: topic, tone, audience">
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button onclick="saveEnhancedPrompt()" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Guardar Prompt
+                            </button>
+                            <button onclick="cancelPromptEdit()" class="btn btn-outline">
+                                <i class="fas fa-times"></i> Cancelar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Prompt List -->
+                    <div id="promptsList" class="prompts-list">
+                        <div class="loading-prompts">
+                            <i class="fas fa-spinner fa-spin"></i> Cargando prompts...
+                        </div>
+                    </div>
+
+                    <!-- Add New Prompt Button -->
+                    <div class="section-actions">
+                        <button onclick="showPromptEditor()" class="btn btn-success">
+                            <i class="fas fa-plus"></i> Crear Nuevo Prompt
+                        </button>
+                        <button onclick="loadEnhancedConfiguration()" class="btn btn-outline">
+                            <i class="fas fa-sync"></i> Recargar
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LLM Tab -->
+            <div id="llm" class="tab-pane">
+                <div class="config-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-brain"></i> Configuración de LLM</h2>
+                        <p class="section-description">Configura los modelos de lenguaje para generación de contenido</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="llm-provider">Proveedor</label>
+                        <select id="llm-provider" class="form-control">
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="llm-model">Modelo</label>
+                        <input type="text" id="llm-model" class="form-control" placeholder="anthropic/claude-3-sonnet">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="llm-temperature">Temperatura</label>
+                        <input type="range" id="llm-temperature" class="form-range" min="0" max="2" step="0.1" value="0.7">
+                        <span class="range-value" id="temperature-value">0.7</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="llm-top-p">Top P</label>
+                        <input type="range" id="llm-top-p" class="form-range" min="0" max="1" step="0.1" value="1.0">
+                        <span class="range-value" id="top-p-value">1.0</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="llm-max-tokens">Máximo de Tokens</label>
+                        <input type="number" id="llm-max-tokens" class="form-control" min="50" max="4000" value="1000">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="llm-api-key">API Key</label>
+                        <input type="password" id="llm-api-key" class="form-control" placeholder="sk-...">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="llm-endpoint">Endpoint</label>
+                        <input type="url" id="llm-endpoint" class="form-control" placeholder="https://api.openrouter.ai/v1/chat/completions">
+                    </div>
+                </div>
+            </div>
+
+            <!-- API Tab -->
+            <div id="api" class="tab-pane">
+                <div class="config-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-key"></i> Configuración de APIs</h2>
+                        <p class="section-description">Configura las claves de acceso a los servicios externos</p>
+                    </div>
+
+                    <div class="api-section">
+                        <h3><i class="fab fa-twitter"></i> Twitter API</h3>
+                        <div class="form-group">
+                            <label for="twitter-api-key">API Key</label>
+                            <input type="password" id="twitter-api-key" class="form-control" placeholder="...">
+                        </div>
+                        <div class="form-group">
+                            <label for="twitter-api-secret">API Secret</label>
+                            <input type="password" id="twitter-api-secret" class="form-control" placeholder="...">
+                        </div>
+                        <div class="form-group">
+                            <label for="twitter-access-token">Access Token</label>
+                            <input type="password" id="twitter-access-token" class="form-control" placeholder="...">
+                        </div>
+                        <div class="form-group">
+                            <label for="twitter-access-secret">Access Secret</label>
+                            <input type="password" id="twitter-access-secret" class="form-control" placeholder="...">
+                        </div>
+                        <div class="form-group">
+                            <label for="twitter-bearer-token">Bearer Token</label>
+                            <input type="password" id="twitter-bearer-token" class="form-control" placeholder="...">
+                        </div>
+                    </div>
+
+                    <div class="api-section">
+                        <h3><i class="fas fa-database"></i> Supabase</h3>
+                        <div class="form-group">
+                            <label for="supabase-url">URL del Proyecto</label>
+                            <input type="url" id="supabase-url" class="form-control" placeholder="https://xyzcompany.supabase.co">
+                        </div>
+                        <div class="form-group">
+                            <label for="supabase-anon-key">Anon Key</label>
+                            <input type="password" id="supabase-anon-key" class="form-control" placeholder="eyJ...">
+                        </div>
+                        <div class="form-group">
+                            <label for="supabase-service-key">Service Key</label>
+                            <input type="password" id="supabase-service-key" class="form-control" placeholder="eyJ...">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- App Tab -->
+            <div id="app" class="tab-pane">
+                <div class="config-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-cog"></i> Configuración de la Aplicación</h2>
+                        <p class="section-description">Ajustes generales de la aplicación</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="auto-save">
+                            <input type="checkbox" id="auto-save"> Auto-guardado
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="auto-save-interval">Intervalo de auto-guardado (segundos)</label>
+                        <input type="number" id="auto-save-interval" class="form-control" min="10" max="300" value="30">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="notifications">
+                            <input type="checkbox" id="notifications"> Notificaciones habilitadas
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="theme">Tema</label>
+                        <select id="theme" class="form-control">
+                            <option value="light">Claro</option>
+                            <option value="dark">Oscuro</option>
+                            <option value="auto">Automático</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="language">Idioma</label>
+                        <select id="language" class="form-control">
+                            <option value="es">Español</option>
+                            <option value="en">English</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="content-max-length">Longitud máxima del contenido</label>
+                        <input type="number" id="content-max-length" class="form-control" min="50" max="1000" value="280">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="content-min-length">Longitud mínima del contenido</label>
+                        <input type="number" id="content-min-length" class="form-control" min="10" max="200" value="10">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="quality-threshold">Umbral de calidad</label>
+                        <input type="range" id="quality-threshold" class="form-range" min="0.1" max="1.0" step="0.1" value="0.7">
+                        <span class="range-value" id="quality-value">0.7</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content Tab -->
+            <div id="content" class="tab-pane">
+                <div class="config-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-edit"></i> Configuración de Contenido</h2>
+                        <p class="section-description">Ajustes específicos para generación de contenido</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="content-max-length-global">Longitud máxima global</label>
+                        <input type="number" id="content-max-length-global" class="form-control" min="50" max="1000" value="280">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="content-min-length-global">Longitud mínima global</label>
+                        <input type="number" id="content-min-length-global" class="form-control" min="10" max="200" value="10">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="quality-threshold-global">Umbral de calidad global</label>
+                        <input type="range" id="quality-threshold-global" class="form-range" min="0.1" max="1.0" step="0.1" value="0.7">
+                        <span class="range-value" id="quality-global-value">0.7</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="enable-ai">
+                            <input type="checkbox" id="enable-ai" checked> IA habilitada
+                        </label>
+                    </div>
+
+                    <div class="variants-config">
+                        <h4>Modos de Generación</h4>
+                        <div class="variant-item">
+                            <label for="ops-enabled">
+                                <input type="checkbox" id="ops-enabled" checked> Modo Operaciones (ops)
+                            </label>
+                            <p class="variant-description">Contenido enfocado en negocios y operaciones</p>
+                        </div>
+                        <div class="variant-item">
+                            <label for="chaos-enabled">
+                                <input type="checkbox" id="chaos-enabled" checked> Modo Caos (chaos)
+                            </label>
+                            <p class="variant-description">Contenido creativo y experimental</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Unsaved Changes Warning -->
+        <div id="unsavedWarning" class="unsaved-warning hidden">
+            <i class="fas fa-exclamation-triangle"></i>
+            Tienes cambios sin guardar
+            <button onclick="saveEnhancedConfiguration()" class="btn btn-primary btn-sm">Guardar ahora</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+    <script src="app-enhanced.js"></script>
+    
+    <script>
+        // Enhanced configuration initialization
+        document.addEventListener('DOMContentLoaded', function() {
+            // Update storage indicator
+            const updateStorageIndicator = () => {
+                const indicator = document.getElementById('storageIndicator');
+                const text = document.getElementById('storageText');
+                
+                if (configState.api?.supabase?.url) {
+                    indicator.className = 'storage-indicator supabase';
+                    text.textContent = 'Almacenamiento en Supabase (Nube)';
+                } else {
+                    indicator.className = 'storage-indicator local';
+                    text.textContent = 'Almacenamiento Local';
+                }
+            };
+            
+            // Call after config loads
+            setTimeout(updateStorageIndicator, 1000);
+            
+            // Range input value updates
+            const rangeInputs = document.querySelectorAll('.form-range');
+            rangeInputs.forEach(input => {
+                const updateValue = () => {
+                    const valueSpan = document.getElementById(input.id + '-value') || 
+                                     document.getElementById(input.id.replace('-', '-') + '-value');
+                    if (valueSpan) {
+                        valueSpan.textContent = input.value;
+                    }
+                };
+                input.addEventListener('input', updateValue);
+                updateValue(); // Initial update
+            });
+            
+            // Tab functionality
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            const tabPanes = document.querySelectorAll('.tab-pane');
+            
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const targetTab = button.dataset.tab;
+                    
+                    // Update active states
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    tabPanes.forEach(pane => pane.classList.remove('active'));
+                    
+                    button.classList.add('active');
+                    document.getElementById(targetTab).classList.add('active');
+                });
+            });
+            
+            // Save configuration button
+            document.getElementById('saveConfigBtn')?.addEventListener('click', saveEnhancedConfiguration);
+            
+            // Export configuration button
+            document.getElementById('exportConfigBtn')?.addEventListener('click', async () => {
+                try {
+                    const config = await configManager.exportConfig();
+                    const blob = new Blob([config], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `xschedule-config-${new Date().toISOString().split('T')[0]}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    showNotification('Configuración exportada exitosamente', 'success');
+                } catch (error) {
+                    console.error('Error exporting config:', error);
+                    showNotification('Error al exportar configuración', 'error');
+                }
+            });
+            
+            // Import configuration button
+            document.getElementById('importConfigBtn')?.addEventListener('click', () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.json';
+                input.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        try {
+                            const text = await file.text();
+                            await configManager.importConfig(text);
+                            await loadEnhancedConfiguration();
+                            showNotification('Configuración importada exitosamente', 'success');
+                        } catch (error) {
+                            console.error('Error importing config:', error);
+                            showNotification('Error al importar configuración', 'error');
+                        }
+                    }
+                };
+                input.click();
+            });
+        });
+        
+        // Utility functions
+        function showPromptEditor() {
+            document.getElementById('promptEditor').classList.remove('hidden');
+            document.getElementById('promptsList').classList.add('hidden');
+            document.getElementById('promptName').focus();
+        }
+        
+        function cancelPromptEdit() {
+            document.getElementById('promptEditor').classList.add('hidden');
+            document.getElementById('promptsList').classList.remove('hidden');
+            // Clear form
+            document.getElementById('promptName').value = '';
+            document.getElementById('promptContent').value = '';
+            document.getElementById('promptVariables').value = '';
+        }
+    </script>
+</body>
+</html>
