@@ -201,6 +201,76 @@ app.post('/api/generate', async (req, res) => {
 });
 
 // Timeline and slots endpoints (unchanged)
+
+app.post('/api/timeline/create', async (req, res) => {
+  try {
+    const { totalSlots, intervalHours, monthsAhead, workStart, workEnd, timezone } = req.body;
+
+    if (!totalSlots || !intervalHours || !workStart || !workEnd || !timezone) {
+      return res.status(400).json({ error: 'Missing required timeline parameters' });
+    }
+
+    let slots = [];
+    let currentTime = DateTime.now().setZone(timezone);
+    const [startHour, startMinute] = workStart.split(':').map(Number);
+    const [endHour, endMinute] = workEnd.split(':').map(Number);
+
+    for (let i = 0; i < totalSlots; i++) {
+      // Find next valid slot time
+      while (true) {
+        const hour = currentTime.hour;
+        const minute = currentTime.minute;
+
+        if (hour < startHour || (hour === startHour && minute < startMinute)) {
+          // Before work hours, advance to start of work
+          currentTime = currentTime.set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
+        } else if (hour > endHour || (hour === endHour && minute > endMinute)) {
+          // After work hours, advance to next day's start
+          currentTime = currentTime.plus({ days: 1 }).set({ hour: startHour, minute: startMinute, second: 0, millisecond: 0 });
+        } else {
+          // Within work hours, this is a valid time
+          break;
+        }
+      }
+
+      slots.push({
+        id: `slot_${Date.now()}_${i}`,
+        slot_index: i,
+        scheduled_time: currentTime.toISO(),
+        status: 'empty',
+        content: null,
+        tweet_id: null,
+        quality_score: null,
+        similarity: null,
+      });
+
+      currentTime = currentTime.plus({ hours: intervalHours });
+    }
+
+    const newTimeline = {
+      id: `timeline_${Date.now()}`,
+      created_at: DateTime.now().toISO(),
+      total_slots: totalSlots,
+      interval_hours: intervalHours,
+      months_ahead: monthsAhead,
+      work_start: workStart,
+      work_end: workEnd,
+      timezone: timezone,
+      slots: slots, // Embed slots into the timeline object
+    };
+
+    memory.timeline = newTimeline;
+    // memory.slots is no longer needed as it's part of the timeline object
+    // memory.slots = slots;
+
+    res.json({ success: true, timeline: newTimeline, preservedCount: 0, message: 'Timeline created successfully' });
+
+  } catch (error) {
+    console.error('Error creating timeline:', error);
+    res.status(500).json({ error: 'Failed to create timeline' });
+  }
+});
+
 app.get('/api/timeline', (req, res) => {
   res.json({ success: true, timeline: memory.timeline, slots: memory.slots });
 });
