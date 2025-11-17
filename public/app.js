@@ -1,3 +1,18 @@
+// ===== AUTHENTICATION WRAPPER =====
+const originalFetch = window.fetch;
+window.fetch = function (url, options) {
+  const token = getAuthToken();
+  const newOptions = { ...options };
+  // Only add for local API calls (relative URLs)
+  if (token && typeof url === 'string' && !url.startsWith('http')) {
+    newOptions.headers = {
+      ...newOptions.headers,
+      'Authorization': `Bearer ${token}`,
+    };
+  }
+  return originalFetch(url, newOptions);
+};
+
 // ===== STATE =====
 let timeline = null;
 let queuePage = 1;
@@ -691,6 +706,26 @@ function escapeHtml(text) {
 }
 
 // ===== CONFIGURATION MANAGEMENT =====
+
+function getAuthToken() {
+  try {
+    // The correct key for Supabase auth token in localStorage
+    const tokenItem = localStorage.getItem('sb-lzzmfproweybcafbecnm-auth-token');
+    if (tokenItem) {
+      const parsedToken = JSON.parse(tokenItem);
+      return parsedToken.access_token || null;
+    }
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+  }
+  return null;
+}
+
+function authHeaders() {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 let currentConfig = null;
 let originalConfig = null;
 let hasUnsavedChanges = false;

@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XSchedule-X - Judge Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="enhanced-styles.css">
+    <link rel="stylesheet" href="judge-dashboard.css">
+    <link rel="stylesheet" href="judge-dashboard-additional.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="judge-header">
+            <div class="header-left">
+                <div class="brand">
+                    <i class="fas fa-gavel"></i>
+                    <h1>Judge Dashboard</h1>
+                </div>
+                <nav class="judge-nav">
+                    <button class="nav-item active" data-tab="restrictions">
+                        <i class="fas fa-cog"></i>
+                        Restricciones
+                    </button>
+                </nav>
+            </div>
+            <div class="header-right">
+                <div class="status-indicator">
+                    <span class="status-dot active"></span>
+                    <span class="status-text">Sistema Activo</span>
+                </div>
+                <a href="/" class="btn btn-outline">
+                    <i class="fas fa-arrow-left"></i>
+                    Volver
+                </a>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="judge-main">
+            <!-- Evaluation Tab -->
+            <div id="evaluationTab" class="tab-content hidden" style="display:none;">
+                <div class="evaluation-container">
+                    <div class="evaluation-header">
+                        <h2>Evaluación de Contenido</h2>
+                        <p>Prueba tu contenido contra las restricciones del judge</p>
+                    </div>
+
+                    <div class="evaluation-workspace">
+                        <!-- Input Section -->
+                        <div class="evaluation-input">
+                            <div class="input-card">
+                                <div class="card-header">
+                                    <h3><i class="fas fa-edit"></i> Contenido a Evaluar</h3>
+                                    <div class="input-actions">
+                                        <button class="btn btn-secondary btn-sm" onclick="clearEvaluationInput()">
+                                            <i class="fas fa-eraser"></i>
+                                            Limpiar
+                                        </button>
+                                        <button class="btn btn-primary btn-sm" onclick="loadSampleContent()">
+                                            <i class="fas fa-file-import"></i>
+                                            Cargar Ejemplo
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-group">
+                                        <label for="contentToEvaluate">Texto del Tweet</label>
+                                        <textarea 
+                                            id="contentToEvaluate" 
+                                            class="form-control content-textarea" 
+                                            placeholder="Escribe o pega el contenido que quieres evaluar..."
+                                            maxlength="280"
+                                            rows="6"
+                                        ></textarea>
+                                        <div class="textarea-footer">
+                                            <span class="char-count">0 / 280</span>
+                                            <div class="quick-inserts">
+                                                <button type="button" class="btn-text btn-sm" onclick="insertTestContent('ai-like')">Contenido IA</button>
+                                                <button type="button" class="btn-text btn-sm" onclick="insertTestContent('spam')">Spam</button>
+                                                <button type="button" class="btn-text btn-sm" onclick="insertTestContent('good')">Buen contenido</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="evaluation-options">
+                                        <div class="form-group">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" id="enableReplyMode" />
+                                                <span class="checkmark"></span>
+                                                Modo Reply (evaluar como respuesta)
+                                            </label>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="evaluationContext">Contexto (opcional)</label>
+                                            <textarea 
+                                                id="evaluationContext" 
+                                                class="form-control" 
+                                                placeholder="Contexto adicional para evaluación de reply..."
+                                                rows="2"
+                                            ></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="evaluation-actions">
+                                <button class="btn btn-primary btn-lg" onclick="evaluateContent()">
+                                    <i class="fas fa-gavel"></i>
+                                    Evaluar Contenido
+                                </button>
+                                <button class="btn btn-secondary" onclick="evaluateBatch()">
+                                    <i class="fas fa-layer-group"></i>
+                                    Evaluar Lote
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Results Section -->
+                        <div class="evaluation-results">
+                            <div class="results-header">
+                                <h3><i class="fas fa-chart-bar"></i> Resultados de la Evaluación</h3>
+                                <div class="results-controls">
+                                    <button class="btn btn-text btn-sm" onclick="exportResults()">
+                                        <i class="fas fa-download"></i>
+                                        Exportar
+                                    </button>
+                                    <button class="btn btn-text btn-sm" onclick="clearResults()">
+                                        <i class="fas fa-trash"></i>
+                                        Limpiar
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div id="evaluationResults" class="results-content">
+                                <div class="empty-state">
+                                    <i class="fas fa-search"></i>
+                                    <h4>Sin evaluaciones</h4>
+                                    <p>Evalúa algún contenido para ver los resultados aquí</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Restrictions Tab -->
+            <div id="restrictionsTab" class="tab-content active">
+                <div class="restrictions-container">
+                    <div class="restrictions-header">
+                        <h2>Gestión de Restricciones</h2>
+                        <p>Configura y administra las reglas del judge</p>
+                        <div class="restrictions-actions">
+                            <button class="btn btn-primary" onclick="createNewRestriction()">
+                                <i class="fas fa-plus"></i>
+                                Nueva Restricción
+                            </button>
+                            <button class="btn btn-secondary" onclick="importRestrictions()">
+                                <i class="fas fa-file-import"></i>
+                                Importar
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="restrictions-workspace">
+                        <div class="restrictions-list">
+                            <div class="list-header">
+                                <h3>Configuraciones Guardadas</h3>
+                                <div class="list-filters">
+                                    <select class="form-control" id="restrictionFilter" onchange="filterRestrictions()">
+                                        <option value="all">Todas</option>
+                                        <option value="active">Activas</option>
+                                        <option value="inactive">Inactivas</option>
+                                        <option value="default">Por defecto</option>
+                                    </select>
+                                    <button class="btn btn-text btn-sm" onclick="refreshRestrictions()">
+                                        <i class="fas fa-sync"></i>
+                                        Refrescar
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="restrictionsList" class="restrictions-grid">
+                                <div class="loading-state">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <p>Cargando restricciones...</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="restrictionEditor" class="restriction-editor hidden">
+                            <!-- Editor content will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monitoring Tab -->
+            <div id="monitoringTab" class="tab-content hidden" style="display:none;">
+                <div class="monitoring-container">
+                    <div class="monitoring-header">
+                        <h2>Monitoreo del Sistema</h2>
+                        <p>Estadísticas y métricas en tiempo real</p>
+                        <div class="monitoring-controls">
+                            <button class="btn btn-secondary" onclick="refreshMonitoring()">
+                                <i class="fas fa-sync"></i>
+                                Actualizar
+                            </button>
+                            <select class="form-control" id="timeRange" onchange="updateTimeRange()">
+                                <option value="1h">Última hora</option>
+                                <option value="24h" selected>Últimas 24h</option>
+                                <option value="7d">Últimos 7 días</option>
+                                <option value="30d">Últimos 30 días</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="monitoring-dashboard">
+                        <!-- Key Metrics -->
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-header">
+                                    <i class="fas fa-search"></i>
+                                    <span class="metric-label">Evaluaciones Totales</span>
+                                </div>
+                                <div class="metric-value" id="totalEvaluations">0</div>
+                                <div class="metric-change positive" id="evaluationsChange">+0%</div>
+                            </div>
+
+                            <div class="metric-card">
+                                <div class="metric-header">
+                                    <i class="fas fa-check-circle"></i>
+                                    <span class="metric-label">Aprobados</span>
+                                </div>
+                                <div class="metric-value" id="approvedCount">0</div>
+                                <div class="metric-change" id="approvalRate">0%</div>
+                            </div>
+
+                            <div class="metric-card">
+                                <div class="metric-header">
+                                    <i class="fas fa-times-circle"></i>
+                                    <span class="metric-label">Rechazados</span>
+                                </div>
+                                <div class="metric-value" id="rejectedCount">0</div>
+                                <div class="metric-change negative" id="rejectionRate">0%</div>
+                            </div>
+
+                            <div class="metric-card">
+                                <div class="metric-header">
+                                    <i class="fas fa-clock"></i>
+                                    <span class="metric-label">Tiempo Promedio</span>
+                                </div>
+                                <div class="metric-value" id="avgEvaluationTime">0ms</div>
+                                <div class="metric-change" id="timeChange">+0ms</div>
+                            </div>
+                        </div>
+
+                        <!-- Charts Section -->
+                        <div class="charts-section">
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <h3>Tendencias de Evaluación</h3>
+                                    <div class="chart-controls">
+                                        <button class="btn btn-text btn-sm" onclick="exportChart('evaluations')">
+                                            <i class="fas fa-download"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="chart-content">
+                                    <canvas id="evaluationsChart"></canvas>
+                                </div>
+                            </div>
+
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <h3>Razones de Rechazo</h3>
+                                </div>
+                                <div class="chart-content">
+                                    <canvas id="rejectionReasonsChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity -->
+                        <div class="activity-section">
+                            <div class="activity-header">
+                                <h3>Actividad Reciente</h3>
+                                <button class="btn btn-text btn-sm" onclick="clearActivity()">
+                                    <i class="fas fa-trash"></i>
+                                    Limpiar
+                                </button>
+                            </div>
+                            <div id="recentActivity" class="activity-list">
+                                <div class="empty-state">
+                                    <i class="fas fa-clock"></i>
+                                    <p>Sin actividad reciente</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History Tab -->
+            <div id="historyTab" class="tab-content hidden" style="display:none;">
+                <div class="history-container">
+                    <div class="history-header">
+                        <h2>Historial de Evaluaciones</h2>
+                        <p>Registro completo de todas las evaluaciones</p>
+                        <div class="history-controls">
+                            <div class="search-group">
+                                <input type="text" id="historySearch" class="form-control" placeholder="Buscar en el historial...">
+                                <i class="fas fa-search"></i>
+                            </div>
+                            <div class="filter-group">
+                                <select class="form-control" id="historyFilter" onchange="filterHistory()">
+                                    <option value="all">Todas</option>
+                                    <option value="approved">Aprobadas</option>
+                                    <option value="rejected">Rechazadas</option>
+                                    <option value="manual">Manuales</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-secondary" onclick="exportHistory()">
+                                <i class="fas fa-download"></i>
+                                Exportar
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="history-content">
+                        <div id="historyList" class="history-list">
+                            <div class="loading-state">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <p>Cargando historial...</p>
+                            </div>
+                        </div>
+                        <div class="history-pagination">
+                            <button class="btn btn-outline" onclick="loadPreviousHistory()" disabled>
+                                <i class="fas fa-chevron-left"></i>
+                                Anterior
+                            </button>
+                            <span class="page-info">Página <span id="currentPage">1</span> de <span id="totalPages">1</span></span>
+                            <button class="btn btn-outline" onclick="loadNextHistory()" disabled>
+                                Siguiente
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Modals -->
+        <div id="batchEvaluationModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Evaluación por Lotes</h3>
+                    <button class="btn-close" onclick="closeBatchModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="batchContent">Contenido (uno por línea)</label>
+                        <textarea id="batchContent" class="form-control" rows="10" placeholder="Pega múltiples tweets aquí, uno por línea..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="batchReplyMode" />
+                            <span class="checkmark"></span>
+                            Evaluar como replies
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline" onclick="closeBatchModal()">Cancelar</button>
+                    <button class="btn btn-primary" onclick="executeBatchEvaluation()">
+                        <i class="fas fa-play"></i>
+                        Evaluar Lote
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay hidden">
+            <div class="loading-content">
+                <div class="loading-spinner"></div>
+                <p id="loadingText">Procesando...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="judge-restrictions-service.js"></script>
+    <script src="judge-restrictions-ui.js"></script>
+</body>
+</html>

@@ -241,7 +241,7 @@ app.use((error, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 XSchedule-X server running on port ${PORT}`);
   console.log(`📊 Storage mode: ${useSupabase ? 'Supabase (cloud)' : 'Local JSON'}`);
   console.log(`📝 Configuration: Enhanced with Supabase integration`);
