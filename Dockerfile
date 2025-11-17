@@ -20,4 +20,4 @@ RUN grep "0.0.0.0" server-enhanced.js
 EXPOSE 3000
 
 # Comando de inicio
-CMD ["npm", "start"]
+CMD ["node", "server-enhanced.js"]
