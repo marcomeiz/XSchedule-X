@@ -42,7 +42,18 @@ app.use(express.static('public'));
 // API Routes
 app.get('/api/config', async (req, res) => {
   try {
-    const config = await configManager.exportConfig();
+    let userId = null;
+    if (useSupabase && req.headers.authorization) {
+        try {
+            const token = req.headers.authorization.replace('Bearer ', '');
+            const { data: { user } } = await supabase.auth.getUser(token);
+            userId = user?.id || null;
+        } catch (authError) {
+            console.error('Auth error in /api/config:', authError);
+            // Do not throw, allow to proceed as anonymous user
+        }
+    }
+    const config = await configManager.exportConfig(userId);
     res.json(JSON.parse(config));
   } catch (error) {
     console.error('Error getting config:', error);

@@ -304,8 +304,9 @@ export class EnhancedConfigManager {
     /**
      * Get current prompt (from Supabase if available, otherwise from local config)
      */
-    async getCurrentPrompt() {
-        if (this.useSupabase && this.userId) {
+    async getCurrentPrompt(userId = null) {
+        const targetUserId = userId || this.userId;
+        if (this.useSupabase && targetUserId) {
             try {
                 const { data, error } = await this.supabase
                     .from('user_prompt_settings')
@@ -320,7 +321,7 @@ export class EnhancedConfigManager {
                             is_default
                         )
                     `)
-                    .eq('user_id', this.userId)
+                    .eq('user_id', targetUserId)
                     .single();
 
                 if (error && error.code !== 'PGRST116') throw error;
@@ -353,13 +354,14 @@ export class EnhancedConfigManager {
     /**
      * Get all prompts (from Supabase if available, otherwise from local config)
      */
-    async getAllPrompts() {
-        if (this.useSupabase && this.userId) {
+    async getAllPrompts(userId = null) {
+        const targetUserId = userId || this.userId;
+        if (this.useSupabase && targetUserId) {
             try {
                 const { data, error } = await this.supabase
                     .from('prompts')
                     .select('*')
-                    .or(`user_id.eq.${this.userId},is_system.eq.true`)
+                    .or(`user_id.eq.${targetUserId},is_system.eq.true`)
                     .order('is_system', { ascending: true })
                     .order('created_at', { ascending: true });
 
@@ -803,9 +805,9 @@ export class EnhancedConfigManager {
     /**
      * Export configuration
      */
-    async exportConfig() {
-        const prompts = await this.getAllPrompts();
-        const currentPrompt = await this.getCurrentPrompt();
+    async exportConfig(userId = null) {
+        const prompts = await this.getAllPrompts(userId);
+        const currentPrompt = await this.getCurrentPrompt(userId);
         
         return JSON.stringify({
             config: this.config,
